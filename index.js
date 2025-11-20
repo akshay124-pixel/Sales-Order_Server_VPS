@@ -14,7 +14,7 @@ const Controller = require("./Controller/Logic");
 const app = express();
 const server = http.createServer(app);
 
-// ✅ CORS config check it
+// ✅ CORS config 
 const corsOptions = {
   origin: [
     "https://sales-order-app-eight.vercel.app", // frontend vercel
