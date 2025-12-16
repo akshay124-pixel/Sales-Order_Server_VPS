@@ -562,6 +562,7 @@ const editEntry = async (req, res) => {
       "freightcs",
       "orderType",
       "installation",
+      "installationeng",
       "installationStatus",
       "remarksByInstallation",
       "dispatchStatus",
