@@ -1,4 +1,4 @@
-// AuthLogic.js
+// AuthLogic.js check cicd
 const User = require("../Models/Model");
 const bcrypt = require("bcrypt");
 const { generateToken } = require("../utils/config jwt");
