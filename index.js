@@ -1,4 +1,4 @@
-require("dotenv").config();
+require('dotenv').config({ path: '/www/wwwroot/Sales_Order-Server/.env' });
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
@@ -17,8 +17,9 @@ const server = http.createServer(app);
 // ✅ CORS config 
 const corsOptions = {
   origin: [
-    "https://sales-order-app-eight.vercel.app", // frontend vercel
-    "https://srv988392.hstgr.cloud",            // backend domain
+    "https://sales-order-app-eight.vercel.app",// frontend vercel
+    "https://sales-order-app-git-staging-akshay124-pixels-projects.vercel.app",
+    "https://srv988392.hstgr.cloud", // backend domain
   ],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   credentials: true,

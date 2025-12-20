@@ -1,0 +1,7 @@
+[
+ {
+ "id": "deploy-sales-order",
+ "execute-command": "/www/wwwroot/Sales_Order-Server/deploy.sh",
+ "response-message": "Sales_Order Deploy Started Successfully!"
+ }
+]
