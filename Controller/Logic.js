@@ -6,7 +6,7 @@ const { Order, Notification } = require("../Models/Schema");
 const { sendMail } = require("../utils/mailer");
 let io;
 
-
+// Check
 const initSocket = (server, app) => {
 
   io = new Server(server, {
