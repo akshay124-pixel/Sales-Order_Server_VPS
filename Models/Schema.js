@@ -92,6 +92,7 @@ const orderSchema = new mongoose.Schema(
     },
     approvalTimestamp: { type: Date }, 
     productsEditTimestamp: { type: Date },
+    productno:{type:String},
     gemOrderNumber: { type: String, trim: true },
     deliveryDate: { type: Date },
     deliveredDate: { type: Date },

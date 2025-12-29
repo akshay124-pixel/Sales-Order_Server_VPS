@@ -550,6 +550,7 @@ const editEntry = async (req, res) => {
       "customerEmail",
       "customername",
       "products",
+      "productno",
       "total",
       "gstno",
       "freightstatus",
