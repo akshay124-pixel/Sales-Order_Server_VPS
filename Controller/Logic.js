@@ -10,7 +10,7 @@ let io;
 const initSocket = (server, app) => {
 
   io = new Server(server, {
-    path: "/sales/socket.io", 
+    path: "/sales/socket.io",
     cors: {
       origin: [process.env.CLIENT_URL],
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
@@ -28,9 +28,9 @@ const initSocket = (server, app) => {
         const userId = data?.userId;
         const role = data?.role;
         if (userId) {
-        
+
           socket.join(`user:${userId}`);
-         
+
           try {
             const dbUser = await User.findById(userId).select("assignedToLeader role");
             if (dbUser?.assignedToLeader) {
@@ -92,7 +92,7 @@ const initSocket = (server, app) => {
   } catch (error) {
     console.error("Error setting up change stream:", error);
   }
-}; 
+};
 // Shared function to create notifications
 function createNotification(req, order, action) {
   const username = req.user?.username || "User";
@@ -114,14 +114,17 @@ const getDashboardCounts = async (req, res) => {
     const userRole = req.user.role;
 
     // Base visibility query
-    let baseQuery = {};
+    let baseQuery = {
+      dispatchStatus: { $ne: "Order Cancelled" }, // Exclude Cancelled by default
+    };
     if (userRole === "Admin" || userRole === "SuperAdmin") {
-      baseQuery = {};
+      baseQuery = { ...baseQuery };
     } else {
       const teamMembers = await User.find({ assignedToLeader: userId }).select("_id");
       const teamMemberIds = teamMembers.map((m) => m._id);
       const allUserIds = [userId, ...teamMemberIds];
       baseQuery = {
+        dispatchStatus: { $ne: "Order Cancelled" },
         $or: [
           { createdBy: { $in: allUserIds } },
           { assignedTo: { $in: allUserIds } },
@@ -211,7 +214,7 @@ const getAllOrders = async (req, res) => {
 };
 
 const createOrder = async (req, res) => {
- try {
+  try {
     const {
       name,
       city,
@@ -264,7 +267,7 @@ const createOrder = async (req, res) => {
     }
 
     // Handle file upload
-    let poFilePath  = null;
+    let poFilePath = null;
     if (req.file) {
       poFilePath = `/Uploads/${req.file.filename}`;
     }
@@ -297,7 +300,7 @@ const createOrder = async (req, res) => {
 
     // Validate dispatchFrom
     const validDispatchLocations = [
-     "Patna",
+      "Patna",
       "Bareilly",
       "Ranchi",
       "Morinda",
@@ -355,16 +358,16 @@ const createOrder = async (req, res) => {
         (orderType === "B2G"
           ? "As Per Tender"
           : product.productType === "IFPD" && product.brand === "Promark"
-          ? "3 Years"
-          : "1 Year");
+            ? "3 Years"
+            : "1 Year");
       product.serialNos = Array.isArray(product.serialNos)
         ? product.serialNos
         : [];
       product.modelNos = Array.isArray(product.modelNos)
         ? product.modelNos
         : product.modelNos
-        ? product.modelNos.split(",").map((m) => m.trim())
-        : [];
+          ? product.modelNos.split(",").map((m) => m.trim())
+          : [];
       product.brand = product.brand || "";
     }
 
@@ -440,24 +443,23 @@ const createOrder = async (req, res) => {
     // Save order
     const savedOrder = await order.save();
 
-     const notification = new Notification({
-      message: `New sales order created by ${req.user.username || "User"} for ${
-        savedOrder.customername || "Unknown"
-      } (Order ID: ${savedOrder.orderId || "N/A"})`,
+    const notification = new Notification({
+      message: `New sales order created by ${req.user.username || "User"} for ${savedOrder.customername || "Unknown"
+        } (Order ID: ${savedOrder.orderId || "N/A"})`,
       timestamp: new Date(),
       isRead: false,
       role: "All",
       userId: req.user.id,
     });
     await notification.save();
- 
+
     try {
       const notifRooms = new Set();
-   
+
       if (savedOrder?.createdBy) notifRooms.add(`user:${String(savedOrder.createdBy)}`);
 
       if (savedOrder?.assignedTo) notifRooms.add(`user:${String(savedOrder.assignedTo)}`);
-   
+
       notifRooms.add("admins");
 
       const notifPayload = {
@@ -468,7 +470,7 @@ const createOrder = async (req, res) => {
         userId: notification.userId ? String(notification.userId) : null,
         orderId: savedOrder.orderId || String(savedOrder._id),
       };
-      
+
       io.to([...notifRooms]).emit("notification", notifPayload); // FIX: single, instant notification
     } catch (emitErr) {
       console.warn("Failed to emit scoped notification:", emitErr?.message);
@@ -604,9 +606,9 @@ const editEntry = async (req, res) => {
 
     // Create update object with only provided fields
     const updateFields = {};
-    let productsWereEdited = false; 
+    let productsWereEdited = false;
 
-     for (const field of allowedFields) {
+    for (const field of allowedFields) {
       if (updateData[field] !== undefined) {
         if (field === "products") {
           // Validate products array
@@ -632,8 +634,8 @@ const editEntry = async (req, res) => {
                 product.unitPrice !== undefined && product.unitPrice !== ""
                   ? Number(product.unitPrice)
                   : existingProduct.unitPrice !== undefined
-                  ? existingProduct.unitPrice
-                  : 0,
+                    ? existingProduct.unitPrice
+                    : 0,
               serialNos: Array.isArray(product.serialNos)
                 ? product.serialNos
                 : existingProduct.serialNos || [],
@@ -723,12 +725,15 @@ const editEntry = async (req, res) => {
     if (productsWereEdited) {
       updateFields.productsEditTimestamp = new Date();
     }
-    // Automatically set completionStatus to "Complete" if fulfillingStatus is "Fulfilled"
-    if (updateData.fulfillingStatus === "Fulfilled") {
+    // ✅ Fulfilment logic — ONLY when explicitly sent
+    if (
+      updateData.fulfillingStatus &&
+      updateData.fulfillingStatus === "Fulfilled" &&
+      existingOrder.fulfillingStatus !== "Fulfilled"
+    ) {
+      updateFields.fulfillingStatus = "Fulfilled";
       updateFields.completionStatus = "Complete";
-      if (!updateFields.fulfillmentDate) {
-        updateFields.fulfillmentDate = new Date();
-      }
+      updateFields.fulfillmentDate = new Date();
     }
 
     // Set receiptDate if dispatchStatus is "Delivered"
@@ -759,22 +764,20 @@ const editEntry = async (req, res) => {
       existingOrder.sostatus !== "Approved"
     ) {
       try {
-        const subject = `Your Order #${
-          updatedOrder.orderId || updatedOrder._id
-        } is Approved!`;
+        const subject = `Your Order #${updatedOrder.orderId || updatedOrder._id
+          } is Approved!`;
         const text = `
 Dear ${updatedOrder.customername || "Customer"},
 
 We're thrilled to confirm that your order for the following products has been approved! Get ready for an amazing experience with Promark Tech Solutions:
 
 ${updatedOrder.products
-  .map(
-    (p, i) =>
-      `${i + 1}. ${p.productType} - Qty: ${p.qty}, Unit Price: ₹${
-        p.unitPrice
-      }, Brand: ${p.brand}`
-  )
-  .join("\n")}
+            .map(
+              (p, i) =>
+                `${i + 1}. ${p.productType} - Qty: ${p.qty}, Unit Price: ₹${p.unitPrice
+                }, Brand: ${p.brand}`
+            )
+            .join("\n")}
 
 Total: ₹${updatedOrder.total || 0}
 
@@ -859,9 +862,8 @@ The Promark Tech Solutions Crew
           <body>
             <div class="container">
               <div class="hero">
-                <h1>Order #${
-                  updatedOrder.orderId || updatedOrder._id
-                } Approved!</h1>
+                <h1>Order #${updatedOrder.orderId || updatedOrder._id
+          } Approved!</h1>
                 <p>Kickstarting Your Journey with Promark Tech Solutions!</p>
               </div>
               <div class="content">
@@ -870,15 +872,15 @@ The Promark Tech Solutions Crew
                <div class="products" style="margin-top:10px;">
   <ul style="list-style-type:none; padding:0; margin:0;">
     ${updatedOrder.products
-      .map(
-        (p, i) =>
-          `<li style="margin-bottom:8px; padding:6px 10px;">
+            .map(
+              (p, i) =>
+                `<li style="margin-bottom:8px; padding:6px 10px;">
             <strong style="color:#333;">${p.productType}</strong> 
             <span style="margin-left:10px; color:#555;">Qty: ${p.qty}</span>, 
            
           </li>`
-      )
-      .join("")}
+            )
+            .join("")}
   </ul>
 </div>
 
@@ -919,37 +921,32 @@ The Promark Tech Solutions Crew
           updateFields.dispatchStatus === "Dispatched"
             ? "dispatched"
             : "delivered";
-        const subject = `Your Order #${
-          updatedOrder.orderId || updatedOrder._id
-        } Has Been ${
-          statusText.charAt(0).toUpperCase() + statusText.slice(1)
-        }!`;
+        const subject = `Your Order #${updatedOrder.orderId || updatedOrder._id
+          } Has Been ${statusText.charAt(0).toUpperCase() + statusText.slice(1)
+          }!`;
         const text = `
 Dear ${updatedOrder.customername || "Customer"},
 
 Great news! Your order has been ${statusText}. Here are the details of your order:
 
 ${updatedOrder.products
-  .map(
-    (p, i) =>
-      `${i + 1}. ${p.productType} - Qty: ${p.qty}, Brand: ${p.brand}, Size: ${p.size}, Spec: ${p.spec}`
-  )
-  .join("\n")}
+            .map(
+              (p, i) =>
+                `${i + 1}. ${p.productType} - Qty: ${p.qty}, Brand: ${p.brand}, Size: ${p.size}, Spec: ${p.spec}`
+            )
+            .join("\n")}
 
 
-${
-  updateFields.dispatchStatus === "Dispatched"
-    ? `Dispatch Date: ${
-        updatedOrder.dispatchDate
-          ? new Date(updatedOrder.dispatchDate).toLocaleString("en-IN")
-          : "N/A"
-      }`
-    : `Delivery Date: ${
-        updatedOrder.receiptDate
-          ? new Date(updatedOrder.receiptDate).toLocaleString("en-IN")
-          : "N/A"
-      }`
-}
+${updateFields.dispatchStatus === "Dispatched"
+            ? `Dispatch Date: ${updatedOrder.dispatchDate
+              ? new Date(updatedOrder.dispatchDate).toLocaleString("en-IN")
+              : "N/A"
+            }`
+            : `Delivery Date: ${updatedOrder.receiptDate
+              ? new Date(updatedOrder.receiptDate).toLocaleString("en-IN")
+              : "N/A"
+            }`
+          }
 Transporter: ${updatedOrder.transporter || "N/A"}
 Docket No: ${updatedOrder.docketNo || "N/A"}
 
@@ -1035,9 +1032,8 @@ The Promark Tech Solutions Crew
           <body>
             <div class="container">
               <div class="hero">
-                <h1>Order #${updatedOrder.orderId || updatedOrder._id} ${
-          statusText.charAt(0).toUpperCase() + statusText.slice(1)
-        }!</h1>
+                <h1>Order #${updatedOrder.orderId || updatedOrder._id} ${statusText.charAt(0).toUpperCase() + statusText.slice(1)
+          }!</h1>
                 <p>Your Next Step with Promark Tech Solutions!</p>
               </div>
               <div class="content">
@@ -1046,37 +1042,34 @@ The Promark Tech Solutions Crew
                 <div class="products" style="margin-top:10px;">
   <ul style="list-style-type:none; padding:0; margin:0;">
     ${updatedOrder.products
-      .map(
-        (p, i) =>
-          `<li style="margin-bottom:10px; padding:8px 12px;">
+            .map(
+              (p, i) =>
+                `<li style="margin-bottom:10px; padding:8px 12px;">
             <strong style="color:#333;">${p.productType}</strong> 
             <span style="margin-left:12px; color:#555;">Qty: ${p.qty}</span>, 
            
           </li>`
-      )
-      .join("")}
+            )
+            .join("")}
   </ul>
 </div>
 
                 <div class="highlight">
                  
-                  <p>${
-                    updateFields.dispatchStatus === "Dispatched"
-                      ? `Dispatch Date: ${
-                          updatedOrder.dispatchDate
-                            ? new Date(
-                                updatedOrder.dispatchDate
-                              ).toLocaleString("en-IN")
-                            : "N/A"
-                        }`
-                      : `Delivery Date: ${
-                          updatedOrder.receiptDate
-                            ? new Date(updatedOrder.receiptDate).toLocaleString(
-                                "en-IN"
-                              )
-                            : "N/A"
-                        }`
-                  }</p>
+                  <p>${updateFields.dispatchStatus === "Dispatched"
+            ? `Dispatch Date: ${updatedOrder.dispatchDate
+              ? new Date(
+                updatedOrder.dispatchDate
+              ).toLocaleString("en-IN")
+              : "N/A"
+            }`
+            : `Delivery Date: ${updatedOrder.receiptDate
+              ? new Date(updatedOrder.receiptDate).toLocaleString(
+                "en-IN"
+              )
+              : "N/A"
+            }`
+          }</p>
                   <p>Transporter: ${updatedOrder.transporter || "N/A"}</p>
                   <p>Docket No: ${updatedOrder.docketNo || "N/A"}</p>
                 </div>
@@ -1105,28 +1098,26 @@ The Promark Tech Solutions Crew
       }
     }
 
-  
-    
- // Create and save notification
-console.log("req.user for notification:", req.user); 
-const notification = new Notification({
-  message: `Order updated by ${
-    req.user?.username || 
-    req.user?.name || 
-    req.user?.email || 
-    req.user?.id || 
-    "Unknown User"
-  } for ${updatedOrder.customername || "Unknown"} (Order ID: ${
-    updatedOrder.orderId || "N/A"
-  })`,
-  timestamp: new Date(),
-  isRead: false,
-  role: "All",
-  userId: req.user?.id || null,
-});
-await notification.save();
 
-  
+
+    // Create and save notification
+    console.log("req.user for notification:", req.user);
+    const notification = new Notification({
+      message: `Order updated by ${req.user?.username ||
+        req.user?.name ||
+        req.user?.email ||
+        req.user?.id ||
+        "Unknown User"
+        } for ${updatedOrder.customername || "Unknown"} (Order ID: ${updatedOrder.orderId || "N/A"
+        })`,
+      timestamp: new Date(),
+      isRead: false,
+      role: "All",
+      userId: req.user?.id || null,
+    });
+    await notification.save();
+
+
     try {
       const notifRooms = new Set();
       if (updatedOrder?.createdBy)
@@ -1286,8 +1277,8 @@ const bulkUploadOrders = async (req, res) => {
           gst: row["GST"] || "18",
           modelNos: row["Model Nos"]
             ? String(row["Model Nos"])
-                .split(",")
-                .map((m) => m.trim())
+              .split(",")
+              .map((m) => m.trim())
             : [],
           brand: row["Brand"] || "",
           warranty:
@@ -1295,8 +1286,8 @@ const bulkUploadOrders = async (req, res) => {
             (row["Order Type"] === "B2G"
               ? "As Per Tender"
               : row["Product Type"] === "IFPD" && row["Brand"] === "Promark"
-              ? "3 Years"
-              : "1 Year"),
+                ? "3 Years"
+                : "1 Year"),
         },
       ];
 
@@ -1500,18 +1491,18 @@ const exportentry = async (req, res) => {
         Array.isArray(entry.products) && entry.products.length > 0
           ? entry.products
           : [
-              {
-                productType: "Not Found",
-                size: "N/A",
-                spec: "N/A",
-                qty: 0,
-                unitPrice: 0,
-                serialNos: [],
-                modelNos: [],
-                gst: 0,
-                brand: "",
-              },
-            ];
+            {
+              productType: "Not Found",
+              size: "N/A",
+              spec: "N/A",
+              qty: 0,
+              unitPrice: 0,
+              serialNos: [],
+              modelNos: [],
+              gst: 0,
+              brand: "",
+            },
+          ];
 
       return products.map((product, index) => {
         const entryData = {
@@ -1552,81 +1543,81 @@ const exportentry = async (req, res) => {
         const conditionalData =
           index === 0
             ? {
-                total: entry.total || 0,
-                paymentCollected: entry.paymentCollected || "",
-                paymentMethod: entry.paymentMethod || "",
-                paymentDue: entry.paymentDue || "",
-                neftTransactionId: entry.neftTransactionId || "",
-                chequeId: entry.chequeId || "",
-                freightcs: entry.freightcs || "",
-                freightstatus: entry.freightstatus || "",
-                installchargesstatus: entry.installchargesstatus || "",
-                gstno: entry.gstno || "",
-                orderType: entry.orderType || "Private",
-                installation: entry.installation || "N/A",
-                installationStatus: entry.installationStatus || "Pending",
-                remarksByInstallation: entry.remarksByInstallation || "",
-                dispatchStatus: entry.dispatchStatus || "Not Dispatched",
-                salesPerson: entry.salesPerson || "",
-                report: entry.report || "",
-                company: entry.company || "Promark",
-                transporter: entry.transporter || "",
-                transporterDetails: entry.transporterDetails || "",
-                docketNo: entry.docketNo || "",
-                shippingAddress: entry.shippingAddress || "",
-                billingAddress: entry.billingAddress || "",
-                invoiceNo: entry.invoiceNo || "",
-                fulfillingStatus: entry.fulfillingStatus || "Pending",
-                remarksByProduction: entry.remarksByProduction || "",
-                remarksByAccounts: entry.remarksByAccounts || "",
-                paymentReceived: entry.paymentReceived || "Not Received",
-                billNumber: entry.billNumber || "",
-                piNumber: entry.piNumber || "",
-                remarksByBilling: entry.remarksByBilling || "",
-                verificationRemarks: entry.verificationRemarks || "",
-                billStatus: entry.billStatus || "Pending",
-                completionStatus: entry.completionStatus || "In Progress",
-                remarks: entry.remarks || "",
-                sostatus: entry.sostatus || "Pending for Approval",
-              }
+              total: entry.total || 0,
+              paymentCollected: entry.paymentCollected || "",
+              paymentMethod: entry.paymentMethod || "",
+              paymentDue: entry.paymentDue || "",
+              neftTransactionId: entry.neftTransactionId || "",
+              chequeId: entry.chequeId || "",
+              freightcs: entry.freightcs || "",
+              freightstatus: entry.freightstatus || "",
+              installchargesstatus: entry.installchargesstatus || "",
+              gstno: entry.gstno || "",
+              orderType: entry.orderType || "Private",
+              installation: entry.installation || "N/A",
+              installationStatus: entry.installationStatus || "Pending",
+              remarksByInstallation: entry.remarksByInstallation || "",
+              dispatchStatus: entry.dispatchStatus || "Not Dispatched",
+              salesPerson: entry.salesPerson || "",
+              report: entry.report || "",
+              company: entry.company || "Promark",
+              transporter: entry.transporter || "",
+              transporterDetails: entry.transporterDetails || "",
+              docketNo: entry.docketNo || "",
+              shippingAddress: entry.shippingAddress || "",
+              billingAddress: entry.billingAddress || "",
+              invoiceNo: entry.invoiceNo || "",
+              fulfillingStatus: entry.fulfillingStatus || "Pending",
+              remarksByProduction: entry.remarksByProduction || "",
+              remarksByAccounts: entry.remarksByAccounts || "",
+              paymentReceived: entry.paymentReceived || "Not Received",
+              billNumber: entry.billNumber || "",
+              piNumber: entry.piNumber || "",
+              remarksByBilling: entry.remarksByBilling || "",
+              verificationRemarks: entry.verificationRemarks || "",
+              billStatus: entry.billStatus || "Pending",
+              completionStatus: entry.completionStatus || "In Progress",
+              remarks: entry.remarks || "",
+              sostatus: entry.sostatus || "Pending for Approval",
+            }
             : {
-                total: "",
-                paymentCollected: "",
-                paymentMethod: "",
-                paymentDue: "",
-                neftTransactionId: "",
-                chequeId: "",
-                freightcs: "",
-                freightstatus: "",
-                installchargesstatus: "",
-                gstno: "",
-                orderType: "",
-                installation: "",
-                installationStatus: "",
-                remarksByInstallation: "",
-                dispatchStatus: "",
-                salesPerson: "",
-                report: "",
-                company: "",
-                transporter: "",
-                transporterDetails: "",
-                docketNo: "",
-                shippingAddress: "",
-                billingAddress: "",
-                invoiceNo: "",
-                fulfillingStatus: "",
-                remarksByProduction: "",
-                remarksByAccounts: "",
-                paymentReceived: "",
-                billNumber: "",
-                piNumber: "",
-                remarksByBilling: "",
-                verificationRemarks: "",
-                billStatus: "",
-                completionStatus: "",
-                remarks: "",
-                sostatus: "",
-              };
+              total: "",
+              paymentCollected: "",
+              paymentMethod: "",
+              paymentDue: "",
+              neftTransactionId: "",
+              chequeId: "",
+              freightcs: "",
+              freightstatus: "",
+              installchargesstatus: "",
+              gstno: "",
+              orderType: "",
+              installation: "",
+              installationStatus: "",
+              remarksByInstallation: "",
+              dispatchStatus: "",
+              salesPerson: "",
+              report: "",
+              company: "",
+              transporter: "",
+              transporterDetails: "",
+              docketNo: "",
+              shippingAddress: "",
+              billingAddress: "",
+              invoiceNo: "",
+              fulfillingStatus: "",
+              remarksByProduction: "",
+              remarksByAccounts: "",
+              paymentReceived: "",
+              billNumber: "",
+              piNumber: "",
+              remarksByBilling: "",
+              verificationRemarks: "",
+              billStatus: "",
+              completionStatus: "",
+              remarks: "",
+              sostatus: "",
+            };
 
         const dateData = {
           receiptDate: entry.receiptDate
@@ -1679,9 +1670,10 @@ const exportentry = async (req, res) => {
 const getFinishedGoodsOrders = async (req, res) => {
   try {
     const orders = await Order.find({
-      fulfillingStatus: "Fulfilled",
-      dispatchStatus: { $ne: "Delivered" },
+      fulfillingStatus: { $in: ["Fulfilled", "Partial Dispatch"] }, // ✅ CHANGE
+      dispatchStatus: { $nin: ["Delivered", "Order Cancelled"] }, // Exclude both
     }).populate("createdBy", "username email");
+
     res.status(200).json({ success: true, data: orders });
   } catch (error) {
     console.error("Error in getFinishedGoodsOrders:", error.message);
@@ -1692,12 +1684,14 @@ const getFinishedGoodsOrders = async (req, res) => {
     });
   }
 };
+
 // Fetch verification orders
 const getVerificationOrders = async (req, res) => {
   try {
     const orders = await Order.find({
       paymentTerms: { $in: ["100% Advance", "Partial Advance"] },
-      sostatus: { $nin: ["Accounts Approved", "Approved" ,"Order on Hold Due to Low Price" ] },
+      sostatus: { $nin: ["Accounts Approved", "Approved", "Order on Hold Due to Low Price"] },
+      dispatchStatus: { $ne: "Order Cancelled" }, // Exclude Cancelled
     }).populate("createdBy", "username email");
     res.json({ success: true, data: orders });
   } catch (error) {
@@ -1705,7 +1699,7 @@ const getVerificationOrders = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch verification orders",
-      error: error.message,       
+      error: error.message,
     });
   }
 };
@@ -1715,6 +1709,7 @@ const getBillOrders = async (req, res) => {
     const orders = await Order.find({
       sostatus: "Approved",
       billStatus: { $ne: "Billing Complete" },
+      dispatchStatus: { $ne: "Order Cancelled" }, // Exclude Cancelled
     }).populate("createdBy", "username email");
     res.json({ success: true, data: orders });
   } catch (error) {
@@ -1727,7 +1722,6 @@ const getBillOrders = async (req, res) => {
   }
 };
 // Fetch installation orders
-
 const getInstallationOrders = async (req, res) => {
   try {
     const orders = await Order.find({
@@ -1735,6 +1729,7 @@ const getInstallationOrders = async (req, res) => {
       installationStatus: {
         $in: ["Pending", "In Progress", "Site Not Ready", "Hold"],
       },
+      // dispatchStatus "Order Cancelled" is implicitly excluded because it must be "Delivered" here.
     }).populate("createdBy", "username email");
 
     res.json({ success: true, data: orders });
@@ -1754,6 +1749,7 @@ const getAccountsOrders = async (req, res) => {
     const orders = await Order.find({
       installationStatus: "Completed",
       paymentReceived: { $ne: "Received" }, // Not equal to "Received"
+      dispatchStatus: { $ne: "Order Cancelled" }, // Exclude Cancelled
     }).populate("createdBy", "username email");
 
     res.json({ success: true, data: orders });
@@ -1771,15 +1767,29 @@ const getProductionApprovalOrders = async (req, res) => {
   try {
     const orders = await Order.find({
       $or: [
-        { sostatus: "Accounts Approved" }, // Include all orders with sostatus "Accounts Approved"
+        // 🔹 Case 1: Accounts Approved (existing)
+        { sostatus: "Accounts Approved" },
+
+        // 🔹 Case 2: Pending + Credit (existing)
         {
           $and: [
-            { sostatus: "Pending for Approval" }, // Include orders with sostatus "Pending for Approval"
-            { paymentTerms: "Credit" }, // Only if paymentTerms is "Credit"
+            { sostatus: "Pending for Approval" },
+            { paymentTerms: "Credit" },
+          ],
+        },
+
+        // 🔹 Case 3: Partial Stock + Approved (NEW ✅)
+        {
+          $and: [
+            { stockStatus: "Partial Stock" },
+            { sostatus: "Approved" },
           ],
         },
       ],
+
+      dispatchStatus: { $ne: "Order Cancelled" }, // Exclude Cancelled
     }).populate("createdBy", "username email");
+
     res.json({ success: true, data: orders });
   } catch (error) {
     console.error("Error in getProductionApprovalOrders:", error);
@@ -1808,6 +1818,7 @@ const getProductionOrders = async (req, res) => {
       sostatus: "Approved",
       dispatchFrom: { $nin: dispatchFromOptions },
       fulfillingStatus: { $ne: "Fulfilled" },
+      dispatchStatus: { $ne: "Order Cancelled" }, // Exclude Cancelled
     }).lean();
 
     res.status(200).json({ success: true, data: orders });
