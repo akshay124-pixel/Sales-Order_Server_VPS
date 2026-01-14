@@ -4,6 +4,7 @@ const { Server } = require("socket.io");
 const User = require("../Models/Model");
 const { Order, Notification } = require("../Models/Schema");
 const { sendMail } = require("../utils/mailer");
+const logger = require("../utils/logger");
 let io;
 
 
@@ -21,7 +22,7 @@ const initSocket = (server, app) => {
     app.set("io", io);
   }
   io.on("connection", (socket) => {
-    console.log("Client connected:", socket.id);
+    logger.info("Client connected", { socketId: socket.id });
     // Explicit, scoped room joins
     socket.on("join", async (data) => {
       try {
@@ -37,26 +38,26 @@ const initSocket = (server, app) => {
               socket.join(`leader:${dbUser.assignedToLeader}`);
             }
           } catch (lookupErr) {
-            console.warn("Failed to look up user for leader room join:", lookupErr?.message);
+            logger.warn("Failed to look up user for leader room join", { error: lookupErr?.message });
           }
         }
         if (role === "Admin") {
           socket.join("admins");
         }
-        console.log(`Socket ${socket.id} joined scoped rooms for user:`, userId || "unknown");
+        logger.info("Socket joined scoped rooms", { socketId: socket.id, userId: userId || "unknown" });
       } catch (err) {
-        console.warn("Join handler error for", socket.id, err?.message);
+        logger.warn("Join handler error", { socketId: socket.id, error: err?.message });
       }
     });
     socket.on("disconnect", () => {
-      console.log("Client disconnected:", socket.id);
+      logger.info("Client disconnected", { socketId: socket.id });
     });
   });
   // Set up MongoDB change stream to watch for Order collection changes
   try {
     const changeStream = Order.watch([], { fullDocument: "updateLookup" });
     changeStream.on("change", (change) => {
-      console.log("Order collection change detected:", change.operationType);
+      logger.info("Order collection change detected", { operationType: change.operationType });
       const fullDoc = change.fullDocument;
       const documentId = change.documentKey?._id;
       // Only emit to scoped rooms based on ownership
@@ -82,15 +83,15 @@ const initSocket = (server, app) => {
 
     // Handle change stream errors
     changeStream.on("error", (error) => {
-      console.error("Change stream error:", error);
+      logger.error("Change stream error", { error });
     });
 
     // Handle change stream close
     changeStream.on("close", () => {
-      console.log("Change stream closed");
+      logger.info("Change stream closed");
     });
   } catch (error) {
-    console.error("Error setting up change stream:", error);
+    logger.error("Error setting up change stream", { error });
   }
 };
 // Shared function to create notifications
@@ -165,7 +166,7 @@ const getDashboardCounts = async (req, res) => {
 
     return res.status(200).json({ all, installation, production, dispatch });
   } catch (error) {
-    console.error("Error in getDashboardCounts:", error);
+    logger.error("Error in getDashboardCounts", { error });
     return res.status(500).json({ success: false, error: "Failed to fetch dashboard counts" });
   }
 };
@@ -208,7 +209,7 @@ const getAllOrders = async (req, res) => {
       .populate({ path: "assignedTo", select: "username email" });
     res.json(orders);
   } catch (error) {
-    console.error("Error in getAllOrders:", error.message);
+    logger.error("Error in getAllOrders", { error: error.message });
     res.status(500).json({ error: "Server error" });
   }
 };
@@ -473,12 +474,12 @@ const createOrder = async (req, res) => {
 
       io.to([...notifRooms]).emit("notification", notifPayload); // FIX: single, instant notification
     } catch (emitErr) {
-      console.warn("Failed to emit scoped notification:", emitErr?.message);
+      logger.warn("Failed to emit scoped notification", { error: emitErr?.message });
     }
 
     res.status(201).json({ success: true, data: savedOrder });
   } catch (error) {
-    console.error("Error in createOrder:", error);
+    logger.error("Error in createOrder", { error });
     if (error.name === "ValidationError") {
       const messages = Object.values(error.errors).map((err) => err.message);
       return res.status(400).json({
@@ -527,7 +528,7 @@ const editEntry = async (req, res) => {
     const updateData = req.body;
 
     // Log request body for debugging
-    console.log("Edit request body:", updateData);
+    logger.debug("Edit request body", { updateData });
 
     // Fetch existing order
     const existingOrder = await Order.findById(orderId);
