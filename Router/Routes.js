@@ -16,7 +16,7 @@ const storage = multer.diskStorage({
     const ext = path.extname(file.originalname);
     cb(null, `${randomBytes}${ext}`);
   },
-}); 
+});
 
 // File filter to validate file types
 const fileFilter = (req, file, cb) => {
@@ -65,7 +65,7 @@ router.post(
 );
 router.get("/dashboard-counts", verifyToken, Controller.getDashboardCounts);
 router.delete("/delete/:id", verifyToken, Controller.DeleteData);
-router.put("/edit/:id", verifyToken, Controller.editEntry);
+router.patch("/edit/:id", verifyToken, upload.single("installationFile"), Controller.editEntry);
 router.get("/export", verifyToken, Controller.exportentry);
 router.post("/bulk-orders", verifyToken, Controller.bulkUploadOrders);
 router.get(
@@ -99,4 +99,5 @@ router.get(
   Controller.fetchAvailableUsers
 );
 router.get("/fetch-my-team", verifyToken, Controller.fetchMyTeam);
+router.post("/send-completion-mail", verifyToken, Controller.sendInstallationCompletionMail);
 module.exports = router;

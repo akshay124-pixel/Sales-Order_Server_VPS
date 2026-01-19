@@ -82,7 +82,7 @@ const orderSchema = new mongoose.Schema(
     actualFreight: { type: Number, min: 0 },
     installchargesstatus: {
       type: String,
-      enum: ["To Pay", "Including", "Extra"],
+      enum: ["To Pay", "Including", "Extra", "Not in Scope"],
       default: "Extra",
     },
     orderType: {
@@ -121,7 +121,8 @@ const orderSchema = new mongoose.Schema(
       enum: ["Promark", "Foxmate", "Promine", "Primus"],
       default: "Promark",
       required: true,
-    }, submissionTime: {
+    },
+    submissionTime: {
       type: String,
       default: new Date().toLocaleString("en-IN", {
         timeZone: "Asia/Kolkata",
@@ -171,6 +172,17 @@ const orderSchema = new mongoose.Schema(
         dateStyle: "full",
         timeStyle: "medium",
       }),
+    },
+    installationFile: { type: String },
+    installationReport: {
+      type: String,
+      enum: ["Yes", "No", "Installed"],
+      default: "No",
+    },
+    stamp: {
+      type: String,
+      enum: ["Received", "Not Received"],
+      default: "Not Received",
     },
     demoDate: { type: Date },
     fulfillmentDate: { type: Date },

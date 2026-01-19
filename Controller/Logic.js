@@ -7,9 +7,7 @@ const { sendMail } = require("../utils/mailer");
 const logger = require("../utils/logger");
 let io;
 
-
 const initSocket = (server, app) => {
-
   io = new Server(server, {
     path: "/sales/socket.io",
     cors: {
@@ -29,24 +27,33 @@ const initSocket = (server, app) => {
         const userId = data?.userId;
         const role = data?.role;
         if (userId) {
-
           socket.join(`user:${userId}`);
 
           try {
-            const dbUser = await User.findById(userId).select("assignedToLeader role");
+            const dbUser = await User.findById(userId).select(
+              "assignedToLeader role",
+            );
             if (dbUser?.assignedToLeader) {
               socket.join(`leader:${dbUser.assignedToLeader}`);
             }
           } catch (lookupErr) {
-            logger.warn("Failed to look up user for leader room join", { error: lookupErr?.message });
+            logger.warn("Failed to look up user for leader room join", {
+              error: lookupErr?.message,
+            });
           }
         }
         if (role === "Admin") {
           socket.join("admins");
         }
-        logger.info("Socket joined scoped rooms", { socketId: socket.id, userId: userId || "unknown" });
+        logger.info("Socket joined scoped rooms", {
+          socketId: socket.id,
+          userId: userId || "unknown",
+        });
       } catch (err) {
-        logger.warn("Join handler error", { socketId: socket.id, error: err?.message });
+        logger.warn("Join handler error", {
+          socketId: socket.id,
+          error: err?.message,
+        });
       }
     });
     socket.on("disconnect", () => {
@@ -57,7 +64,9 @@ const initSocket = (server, app) => {
   try {
     const changeStream = Order.watch([], { fullDocument: "updateLookup" });
     changeStream.on("change", (change) => {
-      logger.info("Order collection change detected", { operationType: change.operationType });
+      logger.info("Order collection change detected", {
+        operationType: change.operationType,
+      });
       const fullDoc = change.fullDocument;
       const documentId = change.documentKey?._id;
       // Only emit to scoped rooms based on ownership
@@ -108,7 +117,7 @@ function createNotification(req, order, action) {
     userId: req.user?.id || null,
   });
 }
-// Get Dashbord Count 
+// Get Dashbord Count
 const getDashboardCounts = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -121,7 +130,9 @@ const getDashboardCounts = async (req, res) => {
     if (userRole === "Admin" || userRole === "SuperAdmin") {
       baseQuery = { ...baseQuery };
     } else {
-      const teamMembers = await User.find({ assignedToLeader: userId }).select("_id");
+      const teamMembers = await User.find({ assignedToLeader: userId }).select(
+        "_id",
+      );
       const teamMemberIds = teamMembers.map((m) => m._id);
       const allUserIds = [userId, ...teamMemberIds];
       baseQuery = {
@@ -139,7 +150,9 @@ const getDashboardCounts = async (req, res) => {
     const installation = await Order.countDocuments({
       ...baseQuery,
       dispatchStatus: "Delivered",
-      installationStatus: { $in: ["Pending", "In Progress", "Site Not Ready", "Hold"] },
+      installationStatus: {
+        $in: ["Pending", "In Progress", "Site Not Ready", "Hold"],
+      },
     });
 
     const dispatch = await Order.countDocuments({
@@ -167,7 +180,9 @@ const getDashboardCounts = async (req, res) => {
     return res.status(200).json({ all, installation, production, dispatch });
   } catch (error) {
     logger.error("Error in getDashboardCounts", { error });
-    return res.status(500).json({ success: false, error: "Failed to fetch dashboard counts" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch dashboard counts" });
   }
 };
 
@@ -185,7 +200,7 @@ const getAllOrders = async (req, res) => {
     } else {
       // For Sales users, get their own orders plus their team members' orders
       const teamMembers = await User.find({ assignedToLeader: userId }).select(
-        "_id"
+        "_id",
       );
       const teamMemberIds = teamMembers.map((member) => member._id);
 
@@ -457,9 +472,11 @@ const createOrder = async (req, res) => {
     try {
       const notifRooms = new Set();
 
-      if (savedOrder?.createdBy) notifRooms.add(`user:${String(savedOrder.createdBy)}`);
+      if (savedOrder?.createdBy)
+        notifRooms.add(`user:${String(savedOrder.createdBy)}`);
 
-      if (savedOrder?.assignedTo) notifRooms.add(`user:${String(savedOrder.assignedTo)}`);
+      if (savedOrder?.assignedTo)
+        notifRooms.add(`user:${String(savedOrder.assignedTo)}`);
 
       notifRooms.add("admins");
 
@@ -474,7 +491,9 @@ const createOrder = async (req, res) => {
 
       io.to([...notifRooms]).emit("notification", notifPayload); // FIX: single, instant notification
     } catch (emitErr) {
-      logger.warn("Failed to emit scoped notification", { error: emitErr?.message });
+      logger.warn("Failed to emit scoped notification", {
+        error: emitErr?.message,
+      });
     }
 
     res.status(201).json({ success: true, data: savedOrder });
@@ -528,7 +547,18 @@ const editEntry = async (req, res) => {
     const updateData = req.body;
 
     // Log request body for debugging
-    logger.debug("Edit request body", { updateData });
+    logger.debug("Edit request body (Full)", { updateData });
+
+    // FILTERED LOGGING FOR VERIFICATION
+    // We want to see if we are receiving a huge object or just the changes.
+    const keysReceived = Object.keys(updateData);
+    logger.info(
+      `[PATCH AUDIT] EditEntry called for ${orderId}. Received ${keysReceived.length} fields.`,
+      {
+        keys: keysReceived,
+        productsIncluded: keysReceived.includes("products"),
+      },
+    );
 
     // Fetch existing order
     const existingOrder = await Order.findById(orderId);
@@ -598,10 +628,14 @@ const editEntry = async (req, res) => {
       "gemOrderNumber",
       "deliveryDate",
       "deliveredDate",
+      "stamp",
+      "installationReport",
+      "installationStatusDate",
       "demoDate",
       "paymentTerms",
       "creditDays",
       "actualFreight",
+      "installationFile",
       "stockStatus",
     ];
 
@@ -609,116 +643,78 @@ const editEntry = async (req, res) => {
     const updateFields = {};
     let productsWereEdited = false;
 
+    // Helper: Check if field is present in payload (prevents missing keys from overwriting)
+    const has = (field) =>
+      Object.prototype.hasOwnProperty.call(updateData, field);
+
     for (const field of allowedFields) {
-      if (updateData[field] !== undefined) {
+      // Handle file upload from req.file explicitly
+      if (field === "installationFile" && req.file) {
+        updateFields[field] = `/Uploads/${req.file.filename}`;
+        continue;
+      }
+
+      if (has(field)) {
+        const val = updateData[field];
+        // Skip undefined or null, BUT allow empty strings if that's the intention (unless it's a Date)
+        if (val === undefined || val === null) continue;
+
         if (field === "products") {
-          // Validate products array
-          if (!Array.isArray(updateData.products)) {
-            return res.status(400).json({
-              success: false,
-              error: "Products must be an array",
-            });
+          if (!Array.isArray(val)) {
+            return res
+              .status(400)
+              .json({ success: false, error: "Products must be an array" });
           }
+          // Normalize and Validate products
+          const normalizedProducts = val.map((p) => ({
+            ...p,
+            qty: Number(p.qty),
+            unitPrice: Number(p.unitPrice),
+            gst: p.gst || "18",
+            warranty: p.warranty || "1 Year",
+          }));
 
-          const incomingProducts = updateData.products;
-          const existingProducts = existingOrder.products || [];
-
-          // Build the normalized product array (always needed for validation)
-          const normalizedProducts = incomingProducts.map((product, index) => {
-            const existingProduct = existingProducts[index] || {};
-            return {
-              productType: product.productType || existingProduct.productType || "",
-              size: product.size || existingProduct.size || "N/A",
-              spec: product.spec || existingProduct.spec || "N/A",
-              qty: Number(product.qty) || existingProduct.qty || 1,
-              unitPrice:
-                product.unitPrice !== undefined && product.unitPrice !== ""
-                  ? Number(product.unitPrice)
-                  : existingProduct.unitPrice !== undefined
-                    ? existingProduct.unitPrice
-                    : 0,
-              serialNos: Array.isArray(product.serialNos)
-                ? product.serialNos
-                : existingProduct.serialNos || [],
-              modelNos: Array.isArray(product.modelNos)
-                ? product.modelNos
-                : existingProduct.modelNos || [],
-              productCode: Array.isArray(product.productCode)
-                ? product.productCode
-                : existingProduct.productCode || [],
-              gst: product.gst || existingProduct.gst || "18",
-              brand: product.brand || existingProduct.brand || "",
-              warranty: product.warranty || existingProduct.warranty || "1 Year",
-            };
-          });
-
-          // Validate all products
-          for (const product of normalizedProducts) {
+          for (const p of normalizedProducts) {
             if (
-              !product.productType ||
-              product.qty <= 0 ||
-              product.unitPrice < 0 ||
-              !product.gst ||
-              !product.warranty
+              !p.productType ||
+              !p.qty ||
+              p.unitPrice < 0 ||
+              !p.gst ||
+              !p.warranty
             ) {
-              return res.status(400).json({
-                success: false,
-                error: "Invalid product data",
-                details:
-                  "Each product must have valid productType, qty, unitPrice, gst, and warranty",
-              });
+              return res
+                .status(400)
+                .json({ success: false, error: "Invalid product data" });
             }
           }
 
-          // Deep comparison: Check if products array length changed
-          if (normalizedProducts.length !== existingProducts.length) {
+          // Check for edits
+          const existingProducts = existingOrder.products || [];
+          if (!arraysEqual(normalizedProducts, existingProducts)) {
             productsWereEdited = true;
             updateFields.products = normalizedProducts;
-          } else {
-            // Compare each product field deeply
-            for (let i = 0; i < normalizedProducts.length; i++) {
-              const newProd = normalizedProducts[i];
-              const oldProd = existingProducts[i];
-
-              if (
-                newProd.productType !== oldProd.productType ||
-                newProd.size !== oldProd.size ||
-                newProd.spec !== oldProd.spec ||
-                Number(newProd.qty) !== Number(oldProd.qty) ||
-                Number(newProd.unitPrice) !== Number(oldProd.unitPrice) ||
-                newProd.gst !== oldProd.gst ||
-                newProd.brand !== oldProd.brand ||
-                newProd.warranty !== oldProd.warranty ||
-                !deepEqual(newProd.serialNos, oldProd.serialNos) ||
-                !deepEqual(newProd.modelNos, oldProd.modelNos) ||
-                !deepEqual(newProd.productCode, oldProd.productCode)
-              ) {
-                productsWereEdited = true;
-                break;
-              }
-            }
-
-            // Only update products field if something actually changed
-            if (productsWereEdited) {
-              updateFields.products = normalizedProducts;
-            }
           }
         } else if (
-          field.endsWith("Date") &&
-          updateData[field] &&
-          !isNaN(new Date(updateData[field]))
+          field.endsWith("Date") ||
+          field === "receiptDate" ||
+          field === "soDate"
         ) {
-          // Handle date fields
-          updateFields[field] = new Date(updateData[field]);
+          // For dates: Only update if it's a valid date string.
+          // Ignore empty strings to prevent resetting valid dates to null unless explicit null sent (which we skipped above)
+          if (val && !isNaN(new Date(val))) {
+            updateFields[field] = new Date(val);
+          }
         } else {
-          updateFields[field] = updateData[field];
+          updateFields[field] = val;
         }
       }
     }
 
-
     // Handle approval timestamp
-    if (updateFields.sostatus === "Approved" && existingOrder.sostatus !== "Approved") {
+    if (
+      updateFields.sostatus === "Approved" &&
+      existingOrder.sostatus !== "Approved"
+    ) {
       updateFields.approvalTimestamp = new Date();
     }
 
@@ -726,21 +722,54 @@ const editEntry = async (req, res) => {
     if (productsWereEdited) {
       updateFields.productsEditTimestamp = new Date();
     }
-    // ✅ Fulfilment logic — ONLY when explicitly sent
+
+    // -------------------------------------------------------------------------
+    // ✅ FULFILLMENT & MORINDA RULE
+    // -------------------------------------------------------------------------
+
+    // Check if dispatchFrom is being changed
     if (
-      updateData.fulfillingStatus &&
-      updateData.fulfillingStatus === "Fulfilled" &&
-      existingOrder.fulfillingStatus !== "Fulfilled"
+      updateFields.dispatchFrom &&
+      updateFields.dispatchFrom !== existingOrder.dispatchFrom
     ) {
-      updateFields.fulfillingStatus = "Fulfilled";
-      updateFields.completionStatus = "Complete";
-      updateFields.fulfillmentDate = new Date();
+      // RULE: If "Morinda" is selected, Production Status MUST be "Pending"
+      if (updateFields.dispatchFrom === "Morinda") {
+        updateFields.fulfillingStatus = "Pending";
+        updateFields.completionStatus = "In Progress";
+        // We intentionally do NOT clear fulfillmentDate logic here to leave traces, or we can:
+        // updateFields.fulfillmentDate = null; // Mongoose might complain if schema is strict Date, usually safe to ignore or set undefined
+      } else {
+        // RULE: Any other location implies "Fulfilled" (as per user request)
+        updateFields.fulfillingStatus = "Fulfilled";
+        updateFields.completionStatus = "Complete";
+        updateFields.fulfillmentDate = new Date();
+      }
+    }
+    // If dispatchFrom is NOT changing, handle manual status updates
+    else if (has("fulfillingStatus")) {
+      if (updateFields.fulfillingStatus === "Fulfilled") {
+        updateFields.completionStatus = "Complete";
+        if (!existingOrder.fulfillmentDate) {
+          updateFields.fulfillmentDate = new Date();
+        }
+      }
+    }
+
+    // Auto-set Dispatch Date if status changes to Dispatched or Delivered
+    if (
+      has("dispatchStatus") &&
+      (updateFields.dispatchStatus === "Dispatched" ||
+        updateFields.dispatchStatus === "Delivered") &&
+      !has("dispatchDate") &&
+      !existingOrder.dispatchDate
+    ) {
+      updateFields.dispatchDate = new Date();
     }
 
     // Set receiptDate if dispatchStatus is "Delivered"
     if (
       updateFields.dispatchStatus === "Delivered" &&
-      !updateFields.receiptDate
+      !existingOrder.receiptDate
     ) {
       updateFields.receiptDate = new Date();
     }
@@ -749,7 +778,7 @@ const editEntry = async (req, res) => {
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
       { $set: updateFields },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     ).populate("createdBy", "username email");
 
     if (!updatedOrder) {
@@ -776,7 +805,7 @@ ${updatedOrder.products
             .map(
               (p, i) =>
                 `${i + 1}. ${p.productType} - Qty: ${p.qty}, Unit Price: ₹${p.unitPrice
-                }, Brand: ${p.brand}`
+                }, Brand: ${p.brand}`,
             )
             .join("\n")}
 
@@ -879,7 +908,7 @@ The Promark Tech Solutions Crew
             <strong style="color:#333;">${p.productType}</strong> 
             <span style="margin-left:10px; color:#555;">Qty: ${p.qty}</span>, 
            
-          </li>`
+          </li>`,
             )
             .join("")}
   </ul>
@@ -906,7 +935,7 @@ The Promark Tech Solutions Crew
       } catch (mailErr) {
         console.error(
           "Order confirmation email sending failed:",
-          mailErr.message
+          mailErr.message,
         );
       }
     }
@@ -933,7 +962,7 @@ Great news! Your order has been ${statusText}. Here are the details of your orde
 ${updatedOrder.products
             .map(
               (p, i) =>
-                `${i + 1}. ${p.productType} - Qty: ${p.qty}, Brand: ${p.brand}, Size: ${p.size}, Spec: ${p.spec}`
+                `${i + 1}. ${p.productType} - Qty: ${p.qty}, Brand: ${p.brand}, Size: ${p.size}, Spec: ${p.spec}`,
             )
             .join("\n")}
 
@@ -1049,7 +1078,7 @@ The Promark Tech Solutions Crew
             <strong style="color:#333;">${p.productType}</strong> 
             <span style="margin-left:12px; color:#555;">Qty: ${p.qty}</span>, 
            
-          </li>`
+          </li>`,
             )
             .join("")}
   </ul>
@@ -1060,13 +1089,13 @@ The Promark Tech Solutions Crew
                   <p>${updateFields.dispatchStatus === "Dispatched"
             ? `Dispatch Date: ${updatedOrder.dispatchDate
               ? new Date(
-                updatedOrder.dispatchDate
+                updatedOrder.dispatchDate,
               ).toLocaleString("en-IN")
               : "N/A"
             }`
             : `Delivery Date: ${updatedOrder.receiptDate
               ? new Date(updatedOrder.receiptDate).toLocaleString(
-                "en-IN"
+                "en-IN",
               )
               : "N/A"
             }`
@@ -1094,12 +1123,10 @@ The Promark Tech Solutions Crew
       } catch (mailErr) {
         console.error(
           `${updateFields.dispatchStatus} email sending failed:`,
-          mailErr.message
+          mailErr.message,
         );
       }
     }
-
-
 
     // Create and save notification
     console.log("req.user for notification:", req.user);
@@ -1117,7 +1144,6 @@ The Promark Tech Solutions Crew
       userId: req.user?.id || null,
     });
     await notification.save();
-
 
     try {
       const notifRooms = new Set();
@@ -1138,7 +1164,10 @@ The Promark Tech Solutions Crew
       // Hinglish: Ek hi emit me multiple rooms pass karo taaki same socket pe duplicate na aaye
       io.to([...notifRooms]).emit("notification", notifPayload);
     } catch (emitErr) {
-      console.warn("Failed to emit scoped notification (editEntry):", emitErr?.message);
+      console.warn(
+        "Failed to emit scoped notification (editEntry):",
+        emitErr?.message,
+      );
     }
 
     res.status(200).json({ success: true, data: updatedOrder });
@@ -1151,6 +1180,168 @@ The Promark Tech Solutions Crew
     });
   }
 };
+// Send installation completion email
+const sendInstallationCompletionMail = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+    const order = await Order.findById(orderId).populate(
+      "createdBy",
+      "username email",
+    );
+
+    if (!order) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
+    }
+
+    if (!order.customerEmail) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Customer email not available" });
+    }
+
+    const salespersonEmail = order.createdBy?.email;
+    const customerEmail = order.customerEmail;
+    const orderDisplayId = order.orderId || order._id;
+
+    const installationEngineer = order.installationeng || "Assigned Engineer";
+
+    const subject = `Installation Assignment: Order #${orderDisplayId}`;
+    const text = `
+Dear ${order.customername || "Customer"},
+
+We are pleased to inform you that an installation engineer has been assigned for your order #${orderDisplayId}.
+
+The installation is scheduled to be completed within the next 2 days.
+
+Details:
+Order ID: ${orderDisplayId}
+Location: ${order.shippingAddress || (order.city ? `${order.city}, ${order.state}` : "N/A")}
+
+Please ensure the site is ready. Our engineer will contact you shortly to coordinate the exact time.
+
+Thank you for choosing Promark Tech Solutions.
+
+Best regards,
+The Promark Tech Solutions Crew
+    `;
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+          body { font-family: 'Poppins', Arial, sans-serif; background-color: #f0f2f5; margin: 0; padding: 0; line-height: 1.6; }
+          .container { max-width: 720px; margin: 40px auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 10px 20px rgba(0,0,0,0.15); }
+          .hero { background: linear-gradient(135deg, #f59e0b, #d97706); padding: 60px 20px; text-align: center; color: white; }
+          .hero h1 { font-size: 28px; font-weight: 700; margin: 0; text-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+          .hero p { font-size: 18px; opacity: 0.9; margin: 10px 0 0; }
+          .content { padding: 40px 30px; }
+          .content h2 { color: #1f2937; font-size: 24px; margin-bottom: 20px; }
+          .content p { color: #4b5563; font-size: 16px; margin-bottom: 20px; }
+          .details-box { background-color: #fffbeb; border-radius: 12px; padding: 25px; border: 1px solid #fcd34d; margin-bottom: 30px; }
+          .details-table { width: 100%; border-collapse: collapse; }
+          .details-table td { padding-bottom: 10px; font-size: 15px; vertical-align: top; }
+          .detail-label { font-weight: 600; color: #92400e; width: 140px; }
+          .detail-value { color: #1e293b; word-wrap: break-word; word-break: break-word; }
+          .footer { text-align: center; padding: 30px; background-color: #f1f5f9; color: #64748b; font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="hero">
+            <h1>Installation Scheduled!</h1>
+            <p>Order #${orderDisplayId}</p>
+          </div>
+          <div class="content">
+            <h2>Dear ${order.customername || "Customer"},</h2>
+            <p>We have successfully assigned an installation engineer for your order. We are committed to completing the installation <strong>within the next 2 days</strong>.</p>
+            
+            <div class="details-box">
+              <table class="details-table" role="presentation">
+                <tr>
+                  <td class="detail-label">Order ID:</td>
+                  <td class="detail-value">${orderDisplayId}</td>
+                </tr>
+                <tr>
+                  <td class="detail-label">Location:</td>
+                  <td class="detail-value">${order.shippingAddress || (order.city ? `${order.city}, ${order.state}` : "N/A")}</td>
+                </tr>
+                <tr>
+                  <td class="detail-label">Timeline:</td>
+                  <td class="detail-value">Within 48 Hours</td>
+                </tr>
+              </table>
+            </div>
+
+            <p>Please ensure the site is ready for installation. Our engineer will coordinate with you for site availability.</p>
+          </div>
+         <div class="footer" style="color: white; background: linear-gradient(135deg, #f59e0b, #d97706); padding:40px; text-align:center;">
+  <p>With enthusiasm,<br/>The Promark Tech Solutions Crew</p>
+  <p>&copy; 2025 <a href="https://promarktechsolutions.com" style="color:#0858cf; text-decoration:none;">Promark Tech Solutions</a>. All rights reserved.</p>
+  <div class="social-icons" style="margin-top:20px;">
+    <a href="https://twitter.com/promarktech"><img src="https://img.icons8.com/color/30/000000/twitter.png" /></a>
+    <a href="https://linkedin.com/company/promarktechsolutions"><img src="https://img.icons8.com/color/30/000000/linkedin.png" /></a>
+    <a href="https://instagram.com/promarktechsolutions"><img src="https://img.icons8.com/color/30/000000/instagram.png" /></a>
+  </div>
+</div>
+
+        </div>
+      </body>
+      </html>
+    `;
+
+    console.log(
+      `Attempting to send Installation Assignment Mail for Order #${orderDisplayId}`,
+    );
+
+    // Send to Customer
+    try {
+      await sendMail(customerEmail, subject, text, html);
+      console.log(
+        `Successfully sent customer email for Order #${orderDisplayId} to ${customerEmail}`,
+      );
+    } catch (msgErr) {
+      console.error(
+        `Failed to send customer email for Order #${orderDisplayId} to ${customerEmail}:`,
+        msgErr,
+      );
+      throw msgErr;
+    }
+
+    // Send to Salesperson (Internal)
+    if (salespersonEmail) {
+      try {
+        await sendMail(
+          salespersonEmail,
+          `[Internal] Installation Assigned - Order #${orderDisplayId}`,
+          `Installation assigned to ${installationEngineer} for Order #${orderDisplayId}. Scheduled within 2 days.\nCustomer: ${order.customername}`,
+          html,
+        );
+        console.log("Internal email sent successfully.");
+      } catch (internalErr) {
+        console.warn("Failed to send internal email copy:", internalErr);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Installation assignment email sent successfully!",
+    });
+  } catch (error) {
+    console.error("Error in sendInstallationCompletionMail:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to send installation completion email",
+      error: error.message,
+    });
+  }
+};
+
 // Delete an order
 const DeleteData = async (req, res) => {
   try {
@@ -1217,7 +1408,10 @@ const DeleteData = async (req, res) => {
       };
       io.to([...notifRooms]).emit("notification", notifPayload);
     } catch (emitErr) {
-      console.warn("Failed to emit scoped notification (deleteOrder):", emitErr?.message);
+      console.warn(
+        "Failed to emit scoped notification (deleteOrder):",
+        emitErr?.message,
+      );
     }
 
     res
@@ -1324,7 +1518,7 @@ const bulkUploadOrders = async (req, res) => {
           return res.status(400).json({
             success: false,
             error: `Model Numbers and Brand are required for IFPD products in row: ${JSON.stringify(
-              row
+              row,
             )}`,
           });
         }
@@ -1452,7 +1646,7 @@ const exportentry = async (req, res) => {
     } else if (role === "Sales") {
       // For Sales users, get their own orders plus their team members' orders
       const teamMembers = await User.find({ assignedToLeader: id }).select(
-        "_id"
+        "_id",
       );
       const teamMemberIds = teamMembers.map((member) => member._id);
       const allUserIds = [id, ...teamMemberIds];
@@ -1477,11 +1671,11 @@ const exportentry = async (req, res) => {
         "Content-Disposition",
         `attachment; filename=orders_${new Date()
           .toISOString()
-          .slice(0, 10)}.xlsx`
+          .slice(0, 10)}.xlsx`,
       );
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       return res.send(fileBuffer);
     }
@@ -1650,11 +1844,11 @@ const exportentry = async (req, res) => {
       "Content-Disposition",
       `attachment; filename=orders_${new Date()
         .toISOString()
-        .slice(0, 10)}.xlsx`
+        .slice(0, 10)}.xlsx`,
     );
     res.setHeader(
       "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
     res.send(fileBuffer);
   } catch (error) {
@@ -1672,7 +1866,7 @@ const getFinishedGoodsOrders = async (req, res) => {
   try {
     const orders = await Order.find({
       fulfillingStatus: { $in: ["Fulfilled", "Partial Dispatch"] }, // ✅ CHANGE
-      dispatchStatus: { $nin: ["Delivered", "Order Cancelled"] }, // Exclude both
+      dispatchStatus: { $nin: ["Order Cancelled", "Delivered"] }, // Exclude both
     }).populate("createdBy", "username email");
 
     res.status(200).json({ success: true, data: orders });
@@ -1691,7 +1885,13 @@ const getVerificationOrders = async (req, res) => {
   try {
     const orders = await Order.find({
       paymentTerms: { $in: ["100% Advance", "Partial Advance"] },
-      sostatus: { $nin: ["Accounts Approved", "Approved", "Order on Hold Due to Low Price"] },
+      sostatus: {
+        $nin: [
+          "Accounts Approved",
+          "Approved",
+          "Order on Hold Due to Low Price",
+        ],
+      },
       dispatchStatus: { $ne: "Order Cancelled" }, // Exclude Cancelled
     }).populate("createdBy", "username email");
     res.json({ success: true, data: orders });
@@ -1722,15 +1922,14 @@ const getBillOrders = async (req, res) => {
     });
   }
 };
+
 // Fetch installation orders
 const getInstallationOrders = async (req, res) => {
   try {
     const orders = await Order.find({
       dispatchStatus: "Delivered",
-      installationStatus: {
-        $in: ["Pending", "In Progress", "Site Not Ready", "Hold"],
-      },
-      // dispatchStatus "Order Cancelled" is implicitly excluded because it must be "Delivered" here.
+      installchargesstatus: { $ne: "Not in Scope" },
+      installationStatus: { $ne: "Completed" },
     }).populate("createdBy", "username email");
 
     res.json({ success: true, data: orders });
@@ -1748,9 +1947,15 @@ const getInstallationOrders = async (req, res) => {
 const getAccountsOrders = async (req, res) => {
   try {
     const orders = await Order.find({
-      installationStatus: "Completed",
-      paymentReceived: { $ne: "Received" }, // Not equal to "Received"
-      dispatchStatus: { $ne: "Order Cancelled" }, // Exclude Cancelled
+      paymentReceived: { $ne: "Received" },
+      dispatchStatus: { $ne: "Order Cancelled" },
+      $or: [
+        // 🔹 Normal flow: installation completed
+        { installationStatus: "Completed" },
+
+        // 🔹 Bypass flow: Not in Scope (ignore installation status)
+        { installchargesstatus: "Not in Scope" },
+      ],
     }).populate("createdBy", "username email");
 
     res.json({ success: true, data: orders });
@@ -1763,6 +1968,7 @@ const getAccountsOrders = async (req, res) => {
     });
   }
 };
+
 // Fetch production approval orders
 const getProductionApprovalOrders = async (req, res) => {
   try {
@@ -1781,10 +1987,7 @@ const getProductionApprovalOrders = async (req, res) => {
 
         // 🔹 Case 3: Partial Stock + Approved (NEW ✅)
         {
-          $and: [
-            { stockStatus: "Partial Stock" },
-            { sostatus: "Approved" },
-          ],
+          $and: [{ stockStatus: "Partial Stock" }, { sostatus: "Approved" }],
         },
       ],
 
@@ -1834,7 +2037,6 @@ const getProductionOrders = async (req, res) => {
 };
 
 // Notifictions
-
 const getNotifications = async (req, res) => {
   try {
     if (!req.user || !req.user.id) {
@@ -2065,5 +2267,6 @@ module.exports = {
   getNotifications,
   markNotificationsRead,
   clearNotifications,
-  getDashboardCounts
+  getDashboardCounts,
+  sendInstallationCompletionMail,
 };
