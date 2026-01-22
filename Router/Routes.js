@@ -20,8 +20,9 @@ const storage = multer.diskStorage({
 
 // File filter to validate file types
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = [
+  const allowedMimeTypes = [
     "application/pdf",
+    "application/x-pdf",
     "image/png",
     "image/jpeg",
     "image/jpg",
@@ -29,13 +30,25 @@ const fileFilter = (req, file, cb) => {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  ]; // Added Excel types for bulk upload
-  if (allowedTypes.includes(file.mimetype)) {
+  ];
+
+  const allowedExtensions = [".pdf", ".png", ".jpg", ".jpeg", ".doc", ".docx", ".xls", ".xlsx"];
+  const fileExt = path.extname(file.originalname).toLowerCase();
+
+  const isMimeAllowed = allowedMimeTypes.includes(file.mimetype);
+  const isExtAllowed = allowedExtensions.includes(fileExt);
+
+  if (isMimeAllowed || isExtAllowed) {
     cb(null, true);
   } else {
+    logger.warn("File upload rejected", {
+      filename: file.originalname,
+      mimetype: file.mimetype,
+      extension: fileExt
+    });
     cb(
       new Error(
-        "Invalid file type. Only PDF, PNG, JPG, DOCX, XLS, and XLSX are allowed."
+        `Invalid file type (${fileExt}). Only PDF, PNG, JPG, DOCX, XLS, and XLSX are allowed.`
       ),
       false
     );
