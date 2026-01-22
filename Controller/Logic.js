@@ -1865,8 +1865,9 @@ const exportentry = async (req, res) => {
 const getFinishedGoodsOrders = async (req, res) => {
   try {
     const orders = await Order.find({
-      fulfillingStatus: { $in: ["Fulfilled", "Partial Dispatch"] }, // ✅ CHANGE
-      dispatchStatus: { $nin: ["Order Cancelled", "Delivered"] }, // Exclude both
+      fulfillingStatus: { $in: ["Fulfilled", "Partial Dispatch"] },
+      dispatchStatus: { $nin: ["Order Cancelled"] },
+      stamp: { $ne: "Received" },
     }).populate("createdBy", "username email");
 
     res.status(200).json({ success: true, data: orders });
