@@ -4,9 +4,9 @@ echo "🚀 Starting Sales Order Deployment..."
 
 cd /www/wwwroot/Sales_Order-Server || exit 1
 
-echo "🧹 Cleaning local changes..."
+echo "🧹 Cleaning code only (preserving Uploads folder)..."
 git reset --hard
-git clean -fd
+git clean -fd -e Uploads
 
 echo "⬇️ Pulling latest code..."
 git pull origin main
