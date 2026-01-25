@@ -3,6 +3,8 @@
 .env.*
 *.env
 
+# User uploads
+Uploads/
 
 # Dependencies
 node_modules/
