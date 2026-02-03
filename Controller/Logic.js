@@ -723,40 +723,47 @@ const editEntry = async (req, res) => {
     // =========================================================================
 
     // RULE 1: When sostatus → "Order Cancelled", auto-set dispatchStatus → "Order Cancelled"
+    // (only if user didn't explicitly set dispatchStatus)
     if (
       updateFields.sostatus === "Order Cancelled" &&
-      existingOrder.sostatus !== "Order Cancelled"
+      existingOrder.sostatus !== "Order Cancelled" &&
+      !has("dispatchStatus") // User didn't explicitly set dispatchStatus
     ) {
       updateFields.dispatchStatus = "Order Cancelled";
     }
 
     // RULE 2: When dispatchStatus → "Order Cancelled", auto-set sostatus → "Order Cancelled"
+    // (only if user didn't explicitly set sostatus)
     if (
       updateFields.dispatchStatus === "Order Cancelled" &&
-      existingOrder.dispatchStatus !== "Order Cancelled"
+      existingOrder.dispatchStatus !== "Order Cancelled" &&
+      !has("sostatus") // User didn't explicitly set sostatus
     ) {
       updateFields.sostatus = "Order Cancelled";
     }
 
     // RULE 3: When sostatus changes FROM "Order Cancelled" to something else,
-    // reset dispatchStatus → "Not Dispatched"
+    // reset dispatchStatus → "Not Dispatched" (only if user didn't explicitly set it)
     if (
       existingOrder.sostatus === "Order Cancelled" &&
       updateFields.sostatus &&
-      updateFields.sostatus !== "Order Cancelled"
+      updateFields.sostatus !== "Order Cancelled" &&
+      !has("dispatchStatus") // User didn't explicitly set dispatchStatus
     ) {
       updateFields.dispatchStatus = "Not Dispatched";
     }
 
     // RULE 4: When dispatchStatus changes FROM "Order Cancelled" to something else,
-    // reset sostatus → "Pending for Approval"
+    // reset sostatus → "Pending for Approval" (only if user didn't explicitly set it)
     if (
       existingOrder.dispatchStatus === "Order Cancelled" &&
       updateFields.dispatchStatus &&
-      updateFields.dispatchStatus !== "Order Cancelled"
+      updateFields.dispatchStatus !== "Order Cancelled" &&
+      !has("sostatus") // User didn't explicitly set sostatus
     ) {
       updateFields.sostatus = "Pending for Approval";
     }
+
     // Handle products edit timestamp if products were edited
     if (productsWereEdited) {
       updateFields.productsEditTimestamp = new Date();
