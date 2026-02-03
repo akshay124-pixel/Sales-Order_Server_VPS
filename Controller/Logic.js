@@ -718,8 +718,11 @@ const editEntry = async (req, res) => {
       updateFields.approvalTimestamp = new Date();
     }
 
-    // ✅ Auto-set dispatchStatus when sostatus is "Order Cancelled"
-    // This ensures cancelled orders disappear from all dashboards immediately
+    // =========================================================================
+    // ✅ BIDIRECTIONAL SYNCHRONIZATION: sostatus ↔ dispatchStatus
+    // =========================================================================
+
+    // RULE 1: When sostatus → "Order Cancelled", auto-set dispatchStatus → "Order Cancelled"
     if (
       updateFields.sostatus === "Order Cancelled" &&
       existingOrder.sostatus !== "Order Cancelled"
@@ -727,6 +730,33 @@ const editEntry = async (req, res) => {
       updateFields.dispatchStatus = "Order Cancelled";
     }
 
+    // RULE 2: When dispatchStatus → "Order Cancelled", auto-set sostatus → "Order Cancelled"
+    if (
+      updateFields.dispatchStatus === "Order Cancelled" &&
+      existingOrder.dispatchStatus !== "Order Cancelled"
+    ) {
+      updateFields.sostatus = "Order Cancelled";
+    }
+
+    // RULE 3: When sostatus changes FROM "Order Cancelled" to something else,
+    // reset dispatchStatus → "Not Dispatched"
+    if (
+      existingOrder.sostatus === "Order Cancelled" &&
+      updateFields.sostatus &&
+      updateFields.sostatus !== "Order Cancelled"
+    ) {
+      updateFields.dispatchStatus = "Not Dispatched";
+    }
+
+    // RULE 4: When dispatchStatus changes FROM "Order Cancelled" to something else,
+    // reset sostatus → "Pending for Approval"
+    if (
+      existingOrder.dispatchStatus === "Order Cancelled" &&
+      updateFields.dispatchStatus &&
+      updateFields.dispatchStatus !== "Order Cancelled"
+    ) {
+      updateFields.sostatus = "Pending for Approval";
+    }
     // Handle products edit timestamp if products were edited
     if (productsWereEdited) {
       updateFields.productsEditTimestamp = new Date();
