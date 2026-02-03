@@ -203,7 +203,7 @@ const orderSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], // Added for team access
+    assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], 
   },
   { timestamps: true }
 );
