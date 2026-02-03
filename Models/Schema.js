@@ -194,6 +194,7 @@ const orderSchema = new mongoose.Schema(
         "Accounts Approved",
         "Approved",
         "Order on Hold Due to Low Price",
+        "Order Cancelled",
       ],
       default: "Pending for Approval",
     },

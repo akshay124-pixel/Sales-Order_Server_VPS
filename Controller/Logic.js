@@ -718,6 +718,15 @@ const editEntry = async (req, res) => {
       updateFields.approvalTimestamp = new Date();
     }
 
+    // ✅ Auto-set dispatchStatus when sostatus is "Order Cancelled"
+    // This ensures cancelled orders disappear from all dashboards immediately
+    if (
+      updateFields.sostatus === "Order Cancelled" &&
+      existingOrder.sostatus !== "Order Cancelled"
+    ) {
+      updateFields.dispatchStatus = "Order Cancelled";
+    }
+
     // Handle products edit timestamp if products were edited
     if (productsWereEdited) {
       updateFields.productsEditTimestamp = new Date();
