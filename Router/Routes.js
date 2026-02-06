@@ -63,6 +63,7 @@ const upload = multer({
 });
 
 router.get("/get-orders", verifyToken, Controller.getAllOrders);
+router.get("/get-orders-paginated", verifyToken, Controller.getOrdersPaginated);
 router.get(
   "/installation-orders",
   verifyToken,
@@ -78,7 +79,7 @@ router.post(
 );
 router.get("/dashboard-counts", verifyToken, Controller.getDashboardCounts);
 router.delete("/delete/:id", verifyToken, Controller.DeleteData);
-router.patch("/edit/:id", verifyToken, upload.single("installationFile"), Controller.editEntry);
+router.patch("/edit/:id", verifyToken, upload.fields([{ name: 'installationFile', maxCount: 1 }, { name: 'poFile', maxCount: 1 }]), Controller.editEntry);
 router.get("/export", verifyToken, Controller.exportentry);
 router.post("/bulk-orders", verifyToken, Controller.bulkUploadOrders);
 router.get(

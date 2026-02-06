@@ -636,7 +636,10 @@ const editEntry = async (req, res) => {
       "creditDays",
       "actualFreight",
       "installationFile",
+      "actualFreight",
+      "installationFile",
       "stockStatus",
+      "poFilePath",
     ];
 
     // Create update object with only provided fields
@@ -648,9 +651,13 @@ const editEntry = async (req, res) => {
       Object.prototype.hasOwnProperty.call(updateData, field);
 
     for (const field of allowedFields) {
-      // Handle file upload from req.file explicitly
-      if (field === "installationFile" && req.file) {
-        updateFields[field] = `/Uploads/${req.file.filename}`;
+      // Handle file upload from req.files explicitly
+      if (field === "installationFile" && req.files && req.files.installationFile) {
+        updateFields[field] = `/Uploads/${req.files.installationFile[0].filename}`;
+        continue;
+      }
+      if (field === "poFilePath" && req.files && req.files.poFile) {
+        updateFields[field] = `/Uploads/${req.files.poFile[0].filename}`;
         continue;
       }
 
@@ -1684,77 +1691,198 @@ const bulkUploadOrders = async (req, res) => {
 // Export orders to Excel
 const exportentry = async (req, res) => {
   try {
-    const { role, id } = req.user;
-    let orders;
+    const userId = req.user.id;
+    const userRole = req.user.role;
 
-    if (role === "Admin") {
-      orders = await Order.find().lean();
-    } else if (role === "Sales") {
-      // For Sales users, get their own orders plus their team members' orders
-      const teamMembers = await User.find({ assignedToLeader: id }).select(
-        "_id",
-      );
+    const {
+      search,
+      approval,
+      orderType,
+      dispatch,
+      salesPerson,
+      dispatchFrom,
+      startDate,
+      endDate,
+      dashboardFilter,
+    } = req.query;
+
+    let query = {};
+
+    // 1. Role-based Access Control
+    if (userRole === "Admin" || userRole === "SuperAdmin") {
+      query = {};
+    } else {
+      const teamMembers = await User.find({ assignedToLeader: userId }).select("_id");
       const teamMemberIds = teamMembers.map((member) => member._id);
-      const allUserIds = [id, ...teamMemberIds];
-
-      orders = await Order.find({
+      const allUserIds = [userId, ...teamMemberIds];
+      query = {
         $or: [
           { createdBy: { $in: allUserIds } },
           { assignedTo: { $in: allUserIds } },
         ],
-      }).lean();
-    } else {
-      orders = await Order.find().lean();
+      };
     }
+
+    // 2. Global Search
+    if (search) {
+      const searchRegex = new RegExp(search, "i");
+      const matchingUsers = await User.find({ username: searchRegex }).select("_id");
+      const matchingUserIds = matchingUsers.map(u => u._id);
+
+      const searchConditions = [
+        { customername: searchRegex },
+        { orderId: searchRegex },
+        { contactNo: searchRegex },
+        { customerEmail: searchRegex },
+        { company: searchRegex },
+        { city: searchRegex },
+        { state: searchRegex },
+        { pinCode: searchRegex },
+        { salesPerson: searchRegex },
+        { "products.productType": searchRegex },
+        { "products.serialNos": searchRegex },
+        { "products.modelNos": searchRegex },
+        { billingAddress: searchRegex },
+        { shippingAddress: searchRegex },
+        { gstno: searchRegex },
+        { remarks: searchRegex },
+        { invoiceNo: searchRegex },
+        { billNumber: searchRegex },
+        { piNumber: searchRegex },
+        { dispatchFrom: searchRegex },
+        { transporter: searchRegex },
+        { transporterDetails: searchRegex },
+        { docketNo: searchRegex },
+        { billStatus: searchRegex },
+        { sostatus: searchRegex },
+        { orderType: searchRegex },
+        { paymentMethod: searchRegex },
+        { paymentTerms: searchRegex },
+        { creditDays: searchRegex },
+        { gemOrderNumber: searchRegex },
+        { installation: searchRegex },
+        { dispatchStatus: searchRegex },
+        { fulfillingStatus: searchRegex },
+        { createdBy: { $in: matchingUserIds } }
+      ];
+
+      if (query.$or) {
+        query = {
+          $and: [
+            { $or: query.$or },
+            { $or: searchConditions }
+          ]
+        };
+      } else {
+        query.$or = searchConditions;
+      }
+    }
+
+    // 3. Filters
+    if (approval && approval !== "All") {
+      query.sostatus = approval;
+    }
+
+    if (orderType && orderType !== "All") {
+      query.orderType = orderType;
+    }
+
+    if (dispatch && dispatch !== "All") {
+      query.dispatchStatus = dispatch;
+    }
+
+    if (dispatchFrom && dispatchFrom !== "All") {
+      query.dispatchFrom = dispatchFrom;
+    }
+
+    if (salesPerson && salesPerson !== "All") {
+      const user = await User.findOne({ username: salesPerson });
+      if (user) {
+        query.createdBy = user._id;
+      } else {
+        query.createdBy = new mongoose.Types.ObjectId();
+      }
+    }
+
+    if (startDate || endDate) {
+      let dateQuery = {};
+      if (startDate) {
+        dateQuery.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        dateQuery.$lte = end;
+      }
+      if (Object.keys(dateQuery).length > 0) {
+        query.soDate = dateQuery;
+      }
+    }
+
+    // 4. Dashboard Logic Filters
+    if (dashboardFilter && dashboardFilter !== "all" && dashboardFilter !== "undefined") {
+      switch (dashboardFilter) {
+        case "production":
+          query.sostatus = "Approved";
+          query.dispatchFrom = {
+            $nin: ["Patna", "Bareilly", "Ranchi", "Lucknow", "Delhi", "Jaipur", "Rajasthan"]
+          };
+          query.fulfillingStatus = { $ne: "Fulfilled" };
+          break;
+        case "installation":
+          query.dispatchStatus = "Delivered";
+          query.installationStatus = {
+            $in: ["Pending", "In Progress", "Site Not Ready", "Hold"]
+          };
+          break;
+        case "dispatch":
+          query.fulfillingStatus = "Fulfilled";
+          query.dispatchStatus = { $ne: "Delivered" };
+          break;
+        default:
+          break;
+      }
+    }
+
+    const orders = await Order.find(query)
+      .populate({
+        path: "createdBy",
+        select: "username email assignedToLeader",
+        populate: { path: "assignedToLeader", select: "username" },
+      })
+      .populate({ path: "assignedTo", select: "username email" })
+      .sort({ createdAt: -1 })
+      .lean();
 
     if (!Array.isArray(orders) || orders.length === 0) {
       const ws = XLSX.utils.json_to_sheet([]);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Orders");
-
       const fileBuffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename=orders_${new Date()
-          .toISOString()
-          .slice(0, 10)}.xlsx`,
-      );
-      res.setHeader(
-        "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      );
+      res.setHeader("Content-Disposition", `attachment; filename=orders_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       return res.send(fileBuffer);
     }
 
-    // Format entries for Excel
+    // Format entries for Excel (Preserving existing formatting logic)
     const formattedEntries = orders.flatMap((entry) => {
-      const products =
-        Array.isArray(entry.products) && entry.products.length > 0
-          ? entry.products
-          : [
-            {
-              productType: "Not Found",
-              size: "N/A",
-              spec: "N/A",
-              qty: 0,
-              unitPrice: 0,
-              serialNos: [],
-              modelNos: [],
-              gst: 0,
-              brand: "",
-            },
-          ];
+      // ... (Rest of formatting logic matches existing structure, I'll allow minimal changes here)
+      // Actually I must include the formatting logic because I am replacing the function.
+      // I'll assume I can reuse the logic block or must include it.
+      // Since I don't want to rewrite the huge formatting block blindly, I will try to keep it.
+      // The formatting logic starts after fetching `orders`.
+      // I will copy it.
+
+      const products = Array.isArray(entry.products) && entry.products.length > 0 ? entry.products : [{
+        productType: "Not Found", size: "N/A", spec: "N/A", qty: 0, unitPrice: 0, serialNos: [], modelNos: [], gst: 0, brand: "",
+      }];
 
       return products.map((product, index) => {
         const entryData = {
           orderId: entry.orderId || "",
-          soDate: entry.soDate
-            ? new Date(entry.soDate).toISOString().slice(0, 10)
-            : "",
+          soDate: entry.soDate ? new Date(entry.soDate).toISOString().slice(0, 10) : "",
           dispatchFrom: entry.dispatchFrom || "",
-          dispatchDate: entry.dispatchDate
-            ? new Date(entry.dispatchDate).toISOString().slice(0, 10)
-            : "",
+          dispatchDate: entry.dispatchDate ? new Date(entry.dispatchDate).toISOString().slice(0, 10) : "",
           name: entry.name || "",
           city: entry.city || "",
           state: entry.state || "",
@@ -1764,146 +1892,78 @@ const exportentry = async (req, res) => {
           customerEmail: entry.customerEmail || "",
           customername: entry.customername || "",
         };
-
         const productData = {
           productType: product.productType || "",
           size: product.size || "N/A",
           spec: product.spec || "N/A",
           qty: product.qty || 0,
           unitPrice: product.unitPrice || 0,
-          serialNos: Array.isArray(product.serialNos)
-            ? product.serialNos.join(", ")
-            : "",
-          modelNos: Array.isArray(product.modelNos)
-            ? product.modelNos.join(", ")
-            : "",
+          serialNos: Array.isArray(product.serialNos) ? product.serialNos.join(", ") : "",
+          modelNos: Array.isArray(product.modelNos) ? product.modelNos.join(", ") : "",
           gst: product.gst || 0,
           brand: product.brand || "",
         };
-
-        const conditionalData =
-          index === 0
-            ? {
-              total: entry.total || 0,
-              paymentCollected: entry.paymentCollected || "",
-              paymentMethod: entry.paymentMethod || "",
-              paymentDue: entry.paymentDue || "",
-              neftTransactionId: entry.neftTransactionId || "",
-              chequeId: entry.chequeId || "",
-              freightcs: entry.freightcs || "",
-              freightstatus: entry.freightstatus || "",
-              installchargesstatus: entry.installchargesstatus || "",
-              gstno: entry.gstno || "",
-              orderType: entry.orderType || "Private",
-              installation: entry.installation || "",
-              installationStatus: entry.installationStatus || "Pending",
-              remarksByInstallation: entry.remarksByInstallation || "",
-              dispatchStatus: entry.dispatchStatus || "Not Dispatched",
-              salesPerson: entry.salesPerson || "",
-              report: entry.report || "",
-              company: entry.company || "Promark",
-              transporter: entry.transporter || "",
-              transporterDetails: entry.transporterDetails || "",
-              docketNo: entry.docketNo || "",
-              shippingAddress: entry.shippingAddress || "",
-              billingAddress: entry.billingAddress || "",
-              invoiceNo: entry.invoiceNo || "",
-              fulfillingStatus: entry.fulfillingStatus || "Pending",
-              remarksByProduction: entry.remarksByProduction || "",
-              remarksByAccounts: entry.remarksByAccounts || "",
-              paymentReceived: entry.paymentReceived || "Not Received",
-              billNumber: entry.billNumber || "",
-              piNumber: entry.piNumber || "",
-              remarksByBilling: entry.remarksByBilling || "",
-              verificationRemarks: entry.verificationRemarks || "",
-              billStatus: entry.billStatus || "Pending",
-              completionStatus: entry.completionStatus || "In Progress",
-              remarks: entry.remarks || "",
-              sostatus: entry.sostatus || "Pending for Approval",
-            }
-            : {
-              total: "",
-              paymentCollected: "",
-              paymentMethod: "",
-              paymentDue: "",
-              neftTransactionId: "",
-              chequeId: "",
-              freightcs: "",
-              freightstatus: "",
-              installchargesstatus: "",
-              gstno: "",
-              orderType: "",
-              installation: "",
-              installationStatus: "",
-              remarksByInstallation: "",
-              dispatchStatus: "",
-              salesPerson: "",
-              report: "",
-              company: "",
-              transporter: "",
-              transporterDetails: "",
-              docketNo: "",
-              shippingAddress: "",
-              billingAddress: "",
-              invoiceNo: "",
-              fulfillingStatus: "",
-              remarksByProduction: "",
-              remarksByAccounts: "",
-              paymentReceived: "",
-              billNumber: "",
-              piNumber: "",
-              remarksByBilling: "",
-              verificationRemarks: "",
-              billStatus: "",
-              completionStatus: "",
-              remarks: "",
-              sostatus: "",
-            };
-
+        const conditionalData = index === 0 ? {
+          total: entry.total || 0,
+          paymentCollected: entry.paymentCollected || "",
+          paymentMethod: entry.paymentMethod || "",
+          paymentDue: entry.paymentDue || "",
+          neftTransactionId: entry.neftTransactionId || "",
+          chequeId: entry.chequeId || "",
+          freightcs: entry.freightcs || "",
+          freightstatus: entry.freightstatus || "",
+          installchargesstatus: entry.installchargesstatus || "",
+          gstno: entry.gstno || "",
+          orderType: entry.orderType || "Private",
+          installation: entry.installation || "",
+          installationStatus: entry.installationStatus || "Pending",
+          remarksByInstallation: entry.remarksByInstallation || "",
+          dispatchStatus: entry.dispatchStatus || "Not Dispatched",
+          salesPerson: entry.salesPerson || "",
+          report: entry.report || "",
+          company: entry.company || "Promark",
+          transporter: entry.transporter || "",
+          transporterDetails: entry.transporterDetails || "",
+          docketNo: entry.docketNo || "",
+          shippingAddress: entry.shippingAddress || "",
+          billingAddress: entry.billingAddress || "",
+          invoiceNo: entry.invoiceNo || "",
+          fulfillingStatus: entry.fulfillingStatus || "Pending",
+          remarksByProduction: entry.remarksByProduction || "",
+          remarksByAccounts: entry.remarksByAccounts || "",
+          paymentReceived: entry.paymentReceived || "Not Received",
+          billNumber: entry.billNumber || "",
+          piNumber: entry.piNumber || "",
+          remarksByBilling: entry.remarksByBilling || "",
+          verificationRemarks: entry.verificationRemarks || "",
+          billStatus: entry.billStatus || "Pending",
+          completionStatus: entry.completionStatus || "In Progress",
+          remarks: entry.remarks || "",
+          sostatus: entry.sostatus || "Pending for Approval",
+          // Include createdBy username if possible
+          createdBy: entry.createdBy ? entry.createdBy.username : "-",
+        } : {
+          total: "", paymentCollected: "", paymentMethod: "", paymentDue: "", neftTransactionId: "", chequeId: "", freightcs: "", freightstatus: "", installchargesstatus: "", gstno: "", orderType: "", installation: "", installationStatus: "", remarksByInstallation: "", dispatchStatus: "", salesPerson: "", report: "", company: "", transporter: "", transporterDetails: "", docketNo: "", shippingAddress: "", billingAddress: "", invoiceNo: "", fulfillingStatus: "", remarksByProduction: "", remarksByAccounts: "", paymentReceived: "", billNumber: "", piNumber: "", remarksByBilling: "", verificationRemarks: "", billStatus: "", completionStatus: "", remarks: "", sostatus: "", createdBy: ""
+        };
         const dateData = {
-          receiptDate: entry.receiptDate
-            ? new Date(entry.receiptDate).toISOString().slice(0, 10)
-            : "",
-          invoiceDate: entry.invoiceDate
-            ? new Date(entry.invoiceDate).toISOString().slice(0, 10)
-            : "",
-          fulfillmentDate: entry.fulfillmentDate
-            ? new Date(entry.fulfillmentDate).toISOString().slice(0, 10)
-            : "",
+          receiptDate: entry.receiptDate ? new Date(entry.receiptDate).toISOString().slice(0, 10) : "",
+          invoiceDate: entry.invoiceDate ? new Date(entry.invoiceDate).toISOString().slice(0, 10) : "",
+          fulfillmentDate: entry.fulfillmentDate ? new Date(entry.fulfillmentDate).toISOString().slice(0, 10) : "",
         };
-
-        return {
-          ...entryData,
-          ...productData,
-          ...conditionalData,
-          ...dateData,
-        };
+        return { ...entryData, ...productData, ...conditionalData, ...dateData };
       });
     });
 
     const ws = XLSX.utils.json_to_sheet(formattedEntries);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Orders");
-
     const fileBuffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename=orders_${new Date()
-        .toISOString()
-        .slice(0, 10)}.xlsx`,
-    );
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    );
+    res.setHeader("Content-Disposition", `attachment; filename=orders_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.send(fileBuffer);
   } catch (error) {
     console.error("Error in exportentry:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to export orders",
-      error: error.message,
-    });
+    res.status(500).json({ success: false, message: "Failed to export orders", error: error.message });
   }
 };
 
@@ -2291,6 +2351,203 @@ const unassignUser = async (req, res) => {
     });
   }
 };
+// Get orders with pagination
+const getOrdersPaginated = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const {
+      search,
+      approval,
+      orderType,
+      dispatch,
+      salesPerson,
+      dispatchFrom,
+      startDate,
+      endDate,
+      dashboardFilter,
+    } = req.query;
+
+    let query = {};
+
+    // 1. Role-based Access Control
+    if (userRole === "Admin" || userRole === "SuperAdmin") {
+      query = {};
+    } else {
+      const teamMembers = await User.find({ assignedToLeader: userId }).select("_id");
+      const teamMemberIds = teamMembers.map((member) => member._id);
+      const allUserIds = [userId, ...teamMemberIds];
+      query = {
+        $or: [
+          { createdBy: { $in: allUserIds } },
+          { assignedTo: { $in: allUserIds } },
+        ],
+      };
+    }
+
+    // 2. Global Search
+    if (search) {
+      const searchRegex = new RegExp(search, "i");
+
+      // Find users matching search term to include in search by creator
+      const matchingUsers = await User.find({ username: searchRegex }).select("_id");
+      const matchingUserIds = matchingUsers.map(u => u._id);
+
+      const searchConditions = [
+        { customername: searchRegex },
+        { orderId: searchRegex },
+        { contactNo: searchRegex },
+        { customerEmail: searchRegex },
+        { company: searchRegex },
+        { city: searchRegex },
+        { state: searchRegex },
+        { pinCode: searchRegex },
+        { salesPerson: searchRegex },
+        { "products.productType": searchRegex },
+        { "products.serialNos": searchRegex },
+        { "products.modelNos": searchRegex },
+        { billingAddress: searchRegex },
+        { shippingAddress: searchRegex },
+        { gstno: searchRegex },
+        { remarks: searchRegex },
+        { invoiceNo: searchRegex },
+        { billNumber: searchRegex },
+        { piNumber: searchRegex },
+        { dispatchFrom: searchRegex },
+        { transporter: searchRegex },
+        { transporterDetails: searchRegex },
+        { docketNo: searchRegex },
+        { billStatus: searchRegex },
+        { sostatus: searchRegex },
+        { orderType: searchRegex },
+        { paymentMethod: searchRegex },
+        { paymentTerms: searchRegex },
+        { creditDays: searchRegex },
+        { gemOrderNumber: searchRegex },
+        { installation: searchRegex },
+        { dispatchStatus: searchRegex },
+        { fulfillingStatus: searchRegex },
+        { createdBy: { $in: matchingUserIds } }
+      ];
+
+      if (query.$or) {
+        // If query already has $or (role based), we must use $and to combine them
+        query = {
+          $and: [
+            { $or: query.$or }, // Role based conditions
+            { $or: searchConditions } // Search conditions
+          ]
+        };
+      } else {
+        query.$or = searchConditions;
+      }
+    }
+
+    // 3. Filters
+    if (approval && approval !== "All") {
+      query.sostatus = approval;
+    }
+
+    if (orderType && orderType !== "All") {
+      query.orderType = orderType;
+    }
+
+    if (dispatch && dispatch !== "All") {
+      query.dispatchStatus = dispatch;
+    }
+
+    if (dispatchFrom && dispatchFrom !== "All") {
+      query.dispatchFrom = dispatchFrom;
+    }
+
+    if (salesPerson && salesPerson !== "All") {
+      const user = await User.findOne({ username: salesPerson });
+      if (user) {
+        query.createdBy = user._id;
+      } else {
+        query.createdBy = new mongoose.Types.ObjectId();
+      }
+    }
+
+    if (startDate || endDate) {
+      let dateQuery = {};
+      if (startDate) {
+        dateQuery.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        dateQuery.$lte = end;
+      }
+      if (Object.keys(dateQuery).length > 0) {
+        query.soDate = dateQuery;
+      }
+    }
+
+    // 4. Dashboard Logic Filters
+    if (dashboardFilter && dashboardFilter !== "all" && dashboardFilter !== "undefined") {
+      switch (dashboardFilter) {
+        case "production":
+          query.sostatus = "Approved";
+          query.dispatchFrom = {
+            $nin: ["Patna", "Bareilly", "Ranchi", "Lucknow", "Delhi", "Jaipur", "Rajasthan"]
+          };
+          query.fulfillingStatus = { $ne: "Fulfilled" };
+          break;
+        case "installation":
+          query.dispatchStatus = "Delivered";
+          query.installationStatus = {
+            $in: ["Pending", "In Progress", "Site Not Ready", "Hold"]
+          };
+          break;
+        case "dispatch":
+          query.fulfillingStatus = "Fulfilled";
+          query.dispatchStatus = { $ne: "Delivered" };
+          break;
+        default:
+          break;
+      }
+    }
+
+    const total = await Order.countDocuments(query);
+
+    // Calculate total product quantity for the filtered result
+    const qtyAggregation = await Order.aggregate([
+      { $match: query },
+      { $unwind: "$products" },
+      { $group: { _id: null, totalQty: { $sum: "$products.qty" } } }
+    ]);
+    const totalProductQty = qtyAggregation.length > 0 ? qtyAggregation[0].totalQty : 0;
+
+    const orders = await Order.find(query)
+      .populate({
+        path: "createdBy",
+        select: "username email assignedToLeader",
+        populate: { path: "assignedToLeader", select: "username" },
+      })
+      .populate({ path: "assignedTo", select: "username email" })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    res.json({
+      data: orders,
+      total,
+      totalProductQty,
+      page,
+      pages: Math.ceil(total / limit),
+    });
+
+  } catch (error) {
+    console.error("Error in getOrdersPaginated:", error.message);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
 module.exports = {
   initSocket,
   unassignUser,
@@ -2298,6 +2555,7 @@ module.exports = {
   fetchMyTeam,
   fetchAvailableUsers,
   getAllOrders,
+  getOrdersPaginated,
   createOrder,
   editEntry,
   DeleteData,
