@@ -1515,25 +1515,28 @@ const bulkUploadOrders = async (req, res) => {
     ];
 
     for (const row of jsonData) {
+      // ✅ Helper to get value checking both old and new header formats
+      const getVal = (oldKey, newKey) => row[newKey] !== undefined ? row[newKey] : row[oldKey];
+
       const products = [
         {
-          productType: row["Product Type"] || "",
-          size: row["Size"] || "N/A",
-          spec: row["Specification"] || "N/A",
-          qty: Number(row["Quantity"]) || 0,
-          unitPrice: Number(row["Unit Price"]) || 0,
-          gst: row["GST"] || "18",
-          modelNos: row["Model Nos"]
-            ? String(row["Model Nos"])
+          productType: getVal("Product Type", "Product Name") || row["Product Type"] || "",
+          size: getVal("Size", "Size") || "N/A",
+          spec: getVal("Specification", "Specification") || "N/A",
+          qty: Number(getVal("Quantity", "Quantity")) || 0,
+          unitPrice: Number(getVal("Unit Price", "Unit Price")) || 0,
+          gst: getVal("GST", "GST") || "18",
+          modelNos: (row["Model Nos"] || row["Model Number"])
+            ? String(row["Model Nos"] || row["Model Number"])
               .split(",")
               .map((m) => m.trim())
             : [],
-          brand: row["Brand"] || "",
+          brand: getVal("Brand", "Brand") || "",
           warranty:
-            row["Warranty"] ||
-            (row["Order Type"] === "B2G"
+            getVal("Warranty", "Warranty") ||
+            (getVal("Order Type", "Order Type") === "B2G"
               ? "As Per Tender"
-              : row["Product Type"] === "IFPD" && row["Brand"] === "Promark"
+              : (getVal("Product Type", "Product Name") === "IFPD" && getVal("Brand", "Brand") === "Promark")
                 ? "3 Years"
                 : "1 Year"),
         },
@@ -1586,16 +1589,16 @@ const bulkUploadOrders = async (req, res) => {
             product.gst === "including" ? 0 : Number(product.gst) || 0;
           return sum + qty * unitPrice * (1 + gstRate / 100);
         }, 0) +
-        Number(row["Freight Charges"] || 0) +
-        Number(row["Installation Charges"] || 0);
+        Number(getVal("Freight Charges", "Freight Charges") || 0) +
+        Number(getVal("Installation Charges", "Installation Charges") || 0);
 
       const calculatedPaymentDue =
-        calculatedTotal - Number(row["Payment Collected"] || 0);
+        calculatedTotal - Number(getVal("Payment Collected", "Payment Collected") || 0);
 
       // Validate dispatchFrom
       if (
-        row["Dispatch From"] &&
-        !validDispatchLocations.includes(row["Dispatch From"])
+        getVal("Dispatch From", "Dispatch From") &&
+        !validDispatchLocations.includes(getVal("Dispatch From", "Dispatch From"))
       ) {
         return res.status(400).json({
           success: false,
@@ -1605,42 +1608,42 @@ const bulkUploadOrders = async (req, res) => {
 
       // Create order object
       const order = {
-        soDate: row["SO Date"] ? new Date(row["SO Date"]) : new Date(),
-        dispatchFrom: row["Dispatch From"] || "",
-        name: row["Contact Person Name"] || "",
-        city: row["City"] || "",
-        state: row["State"] || "",
-        pinCode: row["Pin Code"] || "",
-        contactNo: row["Contact No"] || "",
-        alterno: row["Alternate No"] || "",
-        customerEmail: row["Customer Email"] || "",
-        customername: row["Customer Name"] || "",
+        soDate: getVal("SO Date", "SO Date") ? new Date(getVal("SO Date", "SO Date")) : new Date(),
+        dispatchFrom: getVal("Dispatch From", "Dispatch From") || "",
+        name: getVal("Contact Person Name", "Contact Person") || "",
+        city: getVal("City", "City") || "",
+        state: getVal("State", "State") || "",
+        pinCode: getVal("Pin Code", "Pin Code") || "",
+        contactNo: getVal("Contact No", "Contact Number") || "",
+        alterno: getVal("Alternate No", "Alternate Number") || "",
+        customerEmail: getVal("Customer Email", "Customer Email") || "",
+        customername: getVal("Customer Name", "Customer Name") || "",
         products,
         total: calculatedTotal,
-        gstno: row["GST No"] || "",
-        freightcs: row["Freight Charges"] || "",
-        freightstatus: row["Freight Status"] || "Extra",
-        installchargesstatus: row["Installation Charges Status"] || "Extra",
-        installation: row["Installation Charges"] || "",
-        report: row["Reporting Manager"] || "",
-        salesPerson: row["Sales Person"] || "",
-        company: row["Company"] || "Promark",
-        orderType: row["Order Type"] || "B2C",
-        shippingAddress: row["Shipping Address"] || "",
-        billingAddress: row["Billing Address"] || "",
-        sameAddress: row["Same Address"] === "Yes" || false,
-        paymentCollected: String(row["Payment Collected"] || ""),
-        paymentMethod: row["Payment Method"] || "",
+        gstno: getVal("GST No", "GST Number") || "",
+        freightcs: getVal("Freight Charges", "Freight Charges") || "",
+        freightstatus: getVal("Freight Status", "Freight Status") || "Extra",
+        installchargesstatus: getVal("Installation Charges Status", "Installation Charges Status") || "Extra",
+        installation: getVal("Installation Charges", "Installation Charges") || "",
+        report: getVal("Reporting Manager", "Reporting Manager") || "",
+        salesPerson: getVal("Sales Person", "Sales Person") || "",
+        company: getVal("Company", "Company") || "Promark",
+        orderType: getVal("Order Type", "Order Type") || "B2C",
+        shippingAddress: getVal("Shipping Address", "Shipping Address") || "",
+        billingAddress: getVal("Billing Address", "Billing Address") || "",
+        sameAddress: getVal("Same Address", "Same Address") === "Yes" || false,
+        paymentCollected: String(getVal("Payment Collected", "Payment Collected") || ""),
+        paymentMethod: getVal("Payment Method", "Payment Method") || "",
         paymentDue: String(calculatedPaymentDue),
-        neftTransactionId: row["NEFT Transaction ID"] || "",
-        chequeId: row["Cheque ID"] || "",
-        remarks: row["Remarks"] || "",
-        gemOrderNumber: row["GEM Order Number"] || "",
-        deliveryDate: row["Delivery Date"]
-          ? new Date(row["Delivery Date"])
+        neftTransactionId: getVal("NEFT Transaction ID", "NEFT / Transaction ID") || "",
+        chequeId: getVal("Cheque ID", "Cheque ID") || "",
+        remarks: getVal("Remarks", "SO Remarks") || "",
+        gemOrderNumber: getVal("GEM Order Number", "GEM Order Number") || "",
+        deliveryDate: getVal("Delivery Date", "Delivery Date")
+          ? new Date(getVal("Delivery Date", "Delivery Date"))
           : null,
-        paymentTerms: row["Payment Terms"] || "",
-        creditDays: row["Credit Days"] || "",
+        paymentTerms: getVal("Payment Terms", "Payment Terms") || "",
+        creditDays: getVal("Credit Days", "Credit Days") || "",
         createdBy: req.user.id,
       };
 
@@ -1688,6 +1691,166 @@ const bulkUploadOrders = async (req, res) => {
   }
 };
 
+// ============================================================================
+// SHARED QUERY BUILDER FOR EXPORT AND PAGINATION
+// ============================================================================
+// This ensures export and pagination use IDENTICAL filter logic
+const buildOrderQuery = async (params) => {
+  const {
+    userId,
+    userRole,
+    search,
+    approval,
+    orderType,
+    dispatch,
+    salesPerson,
+    dispatchFrom,
+    startDate,
+    endDate,
+    dashboardFilter,
+  } = params;
+
+  let query = {};
+
+  // 1. Role-based Access Control
+  if (userRole === "Admin" || userRole === "SuperAdmin") {
+    query = {};
+  } else {
+    const teamMembers = await User.find({ assignedToLeader: userId }).select("_id");
+    const teamMemberIds = teamMembers.map((member) => member._id);
+    const allUserIds = [userId, ...teamMemberIds];
+    query = {
+      $or: [
+        { createdBy: { $in: allUserIds } },
+        { assignedTo: { $in: allUserIds } },
+      ],
+    };
+  }
+
+  // 2. Global Search
+  if (search) {
+    const searchRegex = new RegExp(search, "i");
+    const matchingUsers = await User.find({ username: searchRegex }).select("_id");
+    const matchingUserIds = matchingUsers.map(u => u._id);
+
+    const searchConditions = [
+      { customername: searchRegex },
+      { orderId: searchRegex },
+      { contactNo: searchRegex },
+      { customerEmail: searchRegex },
+      { company: searchRegex },
+      { city: searchRegex },
+      { state: searchRegex },
+      { pinCode: searchRegex },
+      { salesPerson: searchRegex },
+      { "products.productType": searchRegex },
+      { "products.serialNos": searchRegex },
+      { "products.modelNos": searchRegex },
+      { billingAddress: searchRegex },
+      { shippingAddress: searchRegex },
+      { gstno: searchRegex },
+      { remarks: searchRegex },
+      { invoiceNo: searchRegex },
+      { billNumber: searchRegex },
+      { piNumber: searchRegex },
+      { dispatchFrom: searchRegex },
+      { transporter: searchRegex },
+      { transporterDetails: searchRegex },
+      { docketNo: searchRegex },
+      { billStatus: searchRegex },
+      { sostatus: searchRegex },
+      { orderType: searchRegex },
+      { paymentMethod: searchRegex },
+      { paymentTerms: searchRegex },
+      { creditDays: searchRegex },
+      { gemOrderNumber: searchRegex },
+      { installation: searchRegex },
+      { dispatchStatus: searchRegex },
+      { fulfillingStatus: searchRegex },
+      { createdBy: { $in: matchingUserIds } }
+    ];
+
+    if (query.$or) {
+      query = {
+        $and: [
+          { $or: query.$or },
+          { $or: searchConditions }
+        ]
+      };
+    } else {
+      query.$or = searchConditions;
+    }
+  }
+
+  // 3. Filters
+  if (approval && approval !== "All") {
+    query.sostatus = approval;
+  }
+
+  if (orderType && orderType !== "All") {
+    query.orderType = orderType;
+  }
+
+  if (dispatch && dispatch !== "All") {
+    query.dispatchStatus = dispatch;
+  }
+
+  if (dispatchFrom && dispatchFrom !== "All") {
+    query.dispatchFrom = dispatchFrom;
+  }
+
+  if (salesPerson && salesPerson !== "All") {
+    const user = await User.findOne({ username: salesPerson });
+    if (user) {
+      query.createdBy = user._id;
+    } else {
+      query.createdBy = new mongoose.Types.ObjectId();
+    }
+  }
+
+  if (startDate || endDate) {
+    let dateQuery = {};
+    if (startDate) {
+      dateQuery.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      dateQuery.$lte = end;
+    }
+    if (Object.keys(dateQuery).length > 0) {
+      query.soDate = dateQuery;
+    }
+  }
+
+  // 4. Dashboard Logic Filters
+  if (dashboardFilter && dashboardFilter !== "all" && dashboardFilter !== "undefined") {
+    switch (dashboardFilter) {
+      case "production":
+        query.sostatus = "Approved";
+        query.dispatchFrom = {
+          $nin: ["Patna", "Bareilly", "Ranchi", "Lucknow", "Delhi", "Jaipur", "Rajasthan"]
+        };
+        query.fulfillingStatus = { $ne: "Fulfilled" };
+        break;
+      case "installation":
+        query.dispatchStatus = "Delivered";
+        query.installationStatus = {
+          $in: ["Pending", "In Progress", "Site Not Ready", "Hold"]
+        };
+        break;
+      case "dispatch":
+        query.fulfillingStatus = "Fulfilled";
+        query.dispatchStatus = { $ne: "Delivered" };
+        break;
+      default:
+        break;
+    }
+  }
+
+  return query;
+};
+
 // Export orders to Excel
 const exportentry = async (req, res) => {
   try {
@@ -1706,143 +1869,20 @@ const exportentry = async (req, res) => {
       dashboardFilter,
     } = req.query;
 
-    let query = {};
-
-    // 1. Role-based Access Control
-    if (userRole === "Admin" || userRole === "SuperAdmin") {
-      query = {};
-    } else {
-      const teamMembers = await User.find({ assignedToLeader: userId }).select("_id");
-      const teamMemberIds = teamMembers.map((member) => member._id);
-      const allUserIds = [userId, ...teamMemberIds];
-      query = {
-        $or: [
-          { createdBy: { $in: allUserIds } },
-          { assignedTo: { $in: allUserIds } },
-        ],
-      };
-    }
-
-    // 2. Global Search
-    if (search) {
-      const searchRegex = new RegExp(search, "i");
-      const matchingUsers = await User.find({ username: searchRegex }).select("_id");
-      const matchingUserIds = matchingUsers.map(u => u._id);
-
-      const searchConditions = [
-        { customername: searchRegex },
-        { orderId: searchRegex },
-        { contactNo: searchRegex },
-        { customerEmail: searchRegex },
-        { company: searchRegex },
-        { city: searchRegex },
-        { state: searchRegex },
-        { pinCode: searchRegex },
-        { salesPerson: searchRegex },
-        { "products.productType": searchRegex },
-        { "products.serialNos": searchRegex },
-        { "products.modelNos": searchRegex },
-        { billingAddress: searchRegex },
-        { shippingAddress: searchRegex },
-        { gstno: searchRegex },
-        { remarks: searchRegex },
-        { invoiceNo: searchRegex },
-        { billNumber: searchRegex },
-        { piNumber: searchRegex },
-        { dispatchFrom: searchRegex },
-        { transporter: searchRegex },
-        { transporterDetails: searchRegex },
-        { docketNo: searchRegex },
-        { billStatus: searchRegex },
-        { sostatus: searchRegex },
-        { orderType: searchRegex },
-        { paymentMethod: searchRegex },
-        { paymentTerms: searchRegex },
-        { creditDays: searchRegex },
-        { gemOrderNumber: searchRegex },
-        { installation: searchRegex },
-        { dispatchStatus: searchRegex },
-        { fulfillingStatus: searchRegex },
-        { createdBy: { $in: matchingUserIds } }
-      ];
-
-      if (query.$or) {
-        query = {
-          $and: [
-            { $or: query.$or },
-            { $or: searchConditions }
-          ]
-        };
-      } else {
-        query.$or = searchConditions;
-      }
-    }
-
-    // 3. Filters
-    if (approval && approval !== "All") {
-      query.sostatus = approval;
-    }
-
-    if (orderType && orderType !== "All") {
-      query.orderType = orderType;
-    }
-
-    if (dispatch && dispatch !== "All") {
-      query.dispatchStatus = dispatch;
-    }
-
-    if (dispatchFrom && dispatchFrom !== "All") {
-      query.dispatchFrom = dispatchFrom;
-    }
-
-    if (salesPerson && salesPerson !== "All") {
-      const user = await User.findOne({ username: salesPerson });
-      if (user) {
-        query.createdBy = user._id;
-      } else {
-        query.createdBy = new mongoose.Types.ObjectId();
-      }
-    }
-
-    if (startDate || endDate) {
-      let dateQuery = {};
-      if (startDate) {
-        dateQuery.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        dateQuery.$lte = end;
-      }
-      if (Object.keys(dateQuery).length > 0) {
-        query.soDate = dateQuery;
-      }
-    }
-
-    // 4. Dashboard Logic Filters
-    if (dashboardFilter && dashboardFilter !== "all" && dashboardFilter !== "undefined") {
-      switch (dashboardFilter) {
-        case "production":
-          query.sostatus = "Approved";
-          query.dispatchFrom = {
-            $nin: ["Patna", "Bareilly", "Ranchi", "Lucknow", "Delhi", "Jaipur", "Rajasthan"]
-          };
-          query.fulfillingStatus = { $ne: "Fulfilled" };
-          break;
-        case "installation":
-          query.dispatchStatus = "Delivered";
-          query.installationStatus = {
-            $in: ["Pending", "In Progress", "Site Not Ready", "Hold"]
-          };
-          break;
-        case "dispatch":
-          query.fulfillingStatus = "Fulfilled";
-          query.dispatchStatus = { $ne: "Delivered" };
-          break;
-        default:
-          break;
-      }
-    }
+    // ✅ USE SHARED QUERY BUILDER - Guarantees identical logic with pagination
+    const query = await buildOrderQuery({
+      userId,
+      userRole,
+      search,
+      approval,
+      orderType,
+      dispatch,
+      salesPerson,
+      dispatchFrom,
+      startDate,
+      endDate,
+      dashboardFilter,
+    });
 
     const orders = await Order.find(query)
       .populate({
@@ -1864,95 +1904,114 @@ const exportentry = async (req, res) => {
       return res.send(fileBuffer);
     }
 
-    // Format entries for Excel (Preserving existing formatting logic)
-    const formattedEntries = orders.flatMap((entry) => {
-      // ... (Rest of formatting logic matches existing structure, I'll allow minimal changes here)
-      // Actually I must include the formatting logic because I am replacing the function.
-      // I'll assume I can reuse the logic block or must include it.
-      // Since I don't want to rewrite the huge formatting block blindly, I will try to keep it.
-      // The formatting logic starts after fetching `orders`.
-      // I will copy it.
-
+    // ✅ FIX: Create ONE row per order (not one row per product)
+    // Aggregate products into comma-separated strings
+    const formattedEntries = orders.map((entry) => {
       const products = Array.isArray(entry.products) && entry.products.length > 0 ? entry.products : [{
-        productType: "Not Found", size: "N/A", spec: "N/A", qty: 0, unitPrice: 0, serialNos: [], modelNos: [], gst: 0, brand: "",
+        productType: "Not Found", size: "N/A", spec: "N/A", qty: 0, unitPrice: 0, serialNos: [], modelNos: [], gst: 0, brand: "", warranty: "",
       }];
 
-      return products.map((product, index) => {
-        const entryData = {
-          orderId: entry.orderId || "",
-          soDate: entry.soDate ? new Date(entry.soDate).toISOString().slice(0, 10) : "",
-          dispatchFrom: entry.dispatchFrom || "",
-          dispatchDate: entry.dispatchDate ? new Date(entry.dispatchDate).toISOString().slice(0, 10) : "",
-          name: entry.name || "",
-          city: entry.city || "",
-          state: entry.state || "",
-          pinCode: entry.pinCode || "",
-          contactNo: entry.contactNo || "",
-          alterno: entry.alterno || "",
-          customerEmail: entry.customerEmail || "",
-          customername: entry.customername || "",
-        };
-        const productData = {
-          productType: product.productType || "",
-          size: product.size || "N/A",
-          spec: product.spec || "N/A",
-          qty: product.qty || 0,
-          unitPrice: product.unitPrice || 0,
-          serialNos: Array.isArray(product.serialNos) ? product.serialNos.join(", ") : "",
-          modelNos: Array.isArray(product.modelNos) ? product.modelNos.join(", ") : "",
-          gst: product.gst || 0,
-          brand: product.brand || "",
-        };
-        const conditionalData = index === 0 ? {
-          total: entry.total || 0,
-          paymentCollected: entry.paymentCollected || "",
-          paymentMethod: entry.paymentMethod || "",
-          paymentDue: entry.paymentDue || "",
-          neftTransactionId: entry.neftTransactionId || "",
-          chequeId: entry.chequeId || "",
-          freightcs: entry.freightcs || "",
-          freightstatus: entry.freightstatus || "",
-          installchargesstatus: entry.installchargesstatus || "",
-          gstno: entry.gstno || "",
-          orderType: entry.orderType || "Private",
-          installation: entry.installation || "",
-          installationStatus: entry.installationStatus || "Pending",
-          remarksByInstallation: entry.remarksByInstallation || "",
-          dispatchStatus: entry.dispatchStatus || "Not Dispatched",
-          salesPerson: entry.salesPerson || "",
-          report: entry.report || "",
-          company: entry.company || "Promark",
-          transporter: entry.transporter || "",
-          transporterDetails: entry.transporterDetails || "",
-          docketNo: entry.docketNo || "",
-          shippingAddress: entry.shippingAddress || "",
-          billingAddress: entry.billingAddress || "",
-          invoiceNo: entry.invoiceNo || "",
-          fulfillingStatus: entry.fulfillingStatus || "Pending",
-          remarksByProduction: entry.remarksByProduction || "",
-          remarksByAccounts: entry.remarksByAccounts || "",
-          paymentReceived: entry.paymentReceived || "Not Received",
-          billNumber: entry.billNumber || "",
-          piNumber: entry.piNumber || "",
-          remarksByBilling: entry.remarksByBilling || "",
-          verificationRemarks: entry.verificationRemarks || "",
-          billStatus: entry.billStatus || "Pending",
-          completionStatus: entry.completionStatus || "In Progress",
-          remarks: entry.remarks || "",
-          sostatus: entry.sostatus || "Pending for Approval",
-          // Include createdBy username if possible
-          createdBy: entry.createdBy ? entry.createdBy.username : "-",
-        } : {
-          total: "", paymentCollected: "", paymentMethod: "", paymentDue: "", neftTransactionId: "", chequeId: "", freightcs: "", freightstatus: "", installchargesstatus: "", gstno: "", orderType: "", installation: "", installationStatus: "", remarksByInstallation: "", dispatchStatus: "", salesPerson: "", report: "", company: "", transporter: "", transporterDetails: "", docketNo: "", shippingAddress: "", billingAddress: "", invoiceNo: "", fulfillingStatus: "", remarksByProduction: "", remarksByAccounts: "", paymentReceived: "", billNumber: "", piNumber: "", remarksByBilling: "", verificationRemarks: "", billStatus: "", completionStatus: "", remarks: "", sostatus: "", createdBy: ""
-        };
-        const dateData = {
-          receiptDate: entry.receiptDate ? new Date(entry.receiptDate).toISOString().slice(0, 10) : "",
-          invoiceDate: entry.invoiceDate ? new Date(entry.invoiceDate).toISOString().slice(0, 10) : "",
-          fulfillmentDate: entry.fulfillmentDate ? new Date(entry.fulfillmentDate).toISOString().slice(0, 10) : "",
-        };
-        return { ...entryData, ...productData, ...conditionalData, ...dateData };
-      });
+      // ✅ SIMPLIFIED FORMAT: All product details in one column
+      // Format: [Type] - Qty: X, Price: ₹Y, Size: S, Spec: Sp, Brand: B, SN: S1, S2, Model: M1, M2, Warranty: W
+      const productDetails = products.map(p => {
+        const parts = [];
+
+        // Product type (Name)
+        parts.push(p.productType || "N/A");
+
+        // Add details in a clean format
+        if (p.qty) parts.push(`Qty: ${p.qty}`);
+        if (p.unitPrice) parts.push(`Price: ₹${p.unitPrice}`);
+        if (p.size && p.size !== "N/A") parts.push(`Size: ${p.size}`);
+        if (p.spec && p.spec !== "N/A") parts.push(`Spec: ${p.spec}`);
+        if (p.brand) parts.push(`Brand: ${p.brand}`);
+
+        // Serial numbers
+        if (Array.isArray(p.serialNos) && p.serialNos.length > 0) {
+          parts.push(`SN: ${p.serialNos.join(", ")}`);
+        }
+
+        // Model numbers
+        if (Array.isArray(p.modelNos) && p.modelNos.length > 0) {
+          parts.push(`Model: ${p.modelNos.join(", ")}`);
+        }
+
+        // Warranty
+        if (p.warranty) parts.push(`Warranty: ${p.warranty}`);
+
+        return parts.join(" - ");
+      }).join(" || "); // Use " || " for multiple products within one cell for better identification
+
+      // ✅ ONLY Product Details and Total Quantity columns for product data
+      const productData = {
+        "Product Details": productDetails,
+        "Total Quantity": products.reduce((sum, p) => sum + (p.qty || 0), 0),
+      };
+
+      const entryData = {
+        "Order ID": entry.orderId || "",
+        "SO Date": entry.soDate ? new Date(entry.soDate).toISOString().slice(0, 10) : "",
+        "Dispatch From": entry.dispatchFrom || "",
+        "Dispatch Date": entry.dispatchDate ? new Date(entry.dispatchDate).toISOString().slice(0, 10) : "",
+        "Contact Person": entry.name || "",
+        "City": entry.city || "",
+        "State": entry.state || "",
+        "Pin Code": entry.pinCode || "",
+        "Contact Number": entry.contactNo || "",
+        "Alternate Number": entry.alterno || "",
+        "Customer Email": entry.customerEmail || "",
+        "Customer Name": entry.customername || "",
+      };
+
+      const orderData = {
+        "Total Amount": entry.total || 0,
+        "Payment Collected": entry.paymentCollected || "",
+        "Payment Method": entry.paymentMethod || "",
+        "Payment Due": entry.paymentDue || "",
+        "NEFT / Transaction ID": entry.neftTransactionId || "",
+        "Cheque ID": entry.chequeId || "",
+        "Freight Charges": entry.freightcs || "",
+        "Freight Status": entry.freightstatus || "",
+        "Installation Charges Status": entry.installchargesstatus || "",
+        "GST Number": entry.gstno || "",
+        "Order Type": entry.orderType || "Private",
+        "Installation Charges": entry.installation || "",
+        "Installation Status": entry.installationStatus || "Pending",
+        "Installation Remarks": entry.remarksByInstallation || "",
+        "Dispatch Status": entry.dispatchStatus || "Not Dispatched",
+        "Sales Person": entry.salesPerson || "",
+        "Reporting Manager": entry.report || "",
+        "Company": entry.company || "Promark",
+        "Transporter": entry.transporter || "",
+        "Transporter Details": entry.transporterDetails || "",
+        "Docket Number": entry.docketNo || "",
+        "Shipping Address": entry.shippingAddress || "",
+        "Billing Address": entry.billingAddress || "",
+        "Invoice Number": entry.invoiceNo || "",
+        "Production Status": entry.fulfillingStatus || "Pending",
+        "Production Remarks": entry.remarksByProduction || "",
+        "Accounts Remarks": entry.remarksByAccounts || "",
+        "Payment Status": entry.paymentReceived || "Not Received",
+        "Bill Number": entry.billNumber || "",
+        "PI Number": entry.piNumber || "",
+        "Billing Remarks": entry.remarksByBilling || "",
+        "Verification Remarks": entry.verificationRemarks || "",
+        "Bill Status": entry.billStatus || "Pending",
+        "Overall Status": entry.completionStatus || "In Progress",
+        "SO Remarks": entry.remarks || "",
+        "Approval Status": entry.sostatus || "Pending for Approval",
+        "Created By": entry.createdBy ? entry.createdBy.username : "-",
+      };
+
+      const dateData = {
+        "Receipt Date": entry.receiptDate ? new Date(entry.receiptDate).toISOString().slice(0, 10) : "",
+        "Invoice Date": entry.invoiceDate ? new Date(entry.invoiceDate).toISOString().slice(0, 10) : "",
+        "Production Date": entry.fulfillmentDate ? new Date(entry.fulfillmentDate).toISOString().slice(0, 10) : "",
+      };
+
+      return { ...entryData, ...productData, ...orderData, ...dateData };
     });
+
 
     const ws = XLSX.utils.json_to_sheet(formattedEntries);
     const wb = XLSX.utils.book_new();
@@ -2372,146 +2431,20 @@ const getOrdersPaginated = async (req, res) => {
       dashboardFilter,
     } = req.query;
 
-    let query = {};
-
-    // 1. Role-based Access Control
-    if (userRole === "Admin" || userRole === "SuperAdmin") {
-      query = {};
-    } else {
-      const teamMembers = await User.find({ assignedToLeader: userId }).select("_id");
-      const teamMemberIds = teamMembers.map((member) => member._id);
-      const allUserIds = [userId, ...teamMemberIds];
-      query = {
-        $or: [
-          { createdBy: { $in: allUserIds } },
-          { assignedTo: { $in: allUserIds } },
-        ],
-      };
-    }
-
-    // 2. Global Search
-    if (search) {
-      const searchRegex = new RegExp(search, "i");
-
-      // Find users matching search term to include in search by creator
-      const matchingUsers = await User.find({ username: searchRegex }).select("_id");
-      const matchingUserIds = matchingUsers.map(u => u._id);
-
-      const searchConditions = [
-        { customername: searchRegex },
-        { orderId: searchRegex },
-        { contactNo: searchRegex },
-        { customerEmail: searchRegex },
-        { company: searchRegex },
-        { city: searchRegex },
-        { state: searchRegex },
-        { pinCode: searchRegex },
-        { salesPerson: searchRegex },
-        { "products.productType": searchRegex },
-        { "products.serialNos": searchRegex },
-        { "products.modelNos": searchRegex },
-        { billingAddress: searchRegex },
-        { shippingAddress: searchRegex },
-        { gstno: searchRegex },
-        { remarks: searchRegex },
-        { invoiceNo: searchRegex },
-        { billNumber: searchRegex },
-        { piNumber: searchRegex },
-        { dispatchFrom: searchRegex },
-        { transporter: searchRegex },
-        { transporterDetails: searchRegex },
-        { docketNo: searchRegex },
-        { billStatus: searchRegex },
-        { sostatus: searchRegex },
-        { orderType: searchRegex },
-        { paymentMethod: searchRegex },
-        { paymentTerms: searchRegex },
-        { creditDays: searchRegex },
-        { gemOrderNumber: searchRegex },
-        { installation: searchRegex },
-        { dispatchStatus: searchRegex },
-        { fulfillingStatus: searchRegex },
-        { createdBy: { $in: matchingUserIds } }
-      ];
-
-      if (query.$or) {
-        // If query already has $or (role based), we must use $and to combine them
-        query = {
-          $and: [
-            { $or: query.$or }, // Role based conditions
-            { $or: searchConditions } // Search conditions
-          ]
-        };
-      } else {
-        query.$or = searchConditions;
-      }
-    }
-
-    // 3. Filters
-    if (approval && approval !== "All") {
-      query.sostatus = approval;
-    }
-
-    if (orderType && orderType !== "All") {
-      query.orderType = orderType;
-    }
-
-    if (dispatch && dispatch !== "All") {
-      query.dispatchStatus = dispatch;
-    }
-
-    if (dispatchFrom && dispatchFrom !== "All") {
-      query.dispatchFrom = dispatchFrom;
-    }
-
-    if (salesPerson && salesPerson !== "All") {
-      const user = await User.findOne({ username: salesPerson });
-      if (user) {
-        query.createdBy = user._id;
-      } else {
-        query.createdBy = new mongoose.Types.ObjectId();
-      }
-    }
-
-    if (startDate || endDate) {
-      let dateQuery = {};
-      if (startDate) {
-        dateQuery.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        dateQuery.$lte = end;
-      }
-      if (Object.keys(dateQuery).length > 0) {
-        query.soDate = dateQuery;
-      }
-    }
-
-    // 4. Dashboard Logic Filters
-    if (dashboardFilter && dashboardFilter !== "all" && dashboardFilter !== "undefined") {
-      switch (dashboardFilter) {
-        case "production":
-          query.sostatus = "Approved";
-          query.dispatchFrom = {
-            $nin: ["Patna", "Bareilly", "Ranchi", "Lucknow", "Delhi", "Jaipur", "Rajasthan"]
-          };
-          query.fulfillingStatus = { $ne: "Fulfilled" };
-          break;
-        case "installation":
-          query.dispatchStatus = "Delivered";
-          query.installationStatus = {
-            $in: ["Pending", "In Progress", "Site Not Ready", "Hold"]
-          };
-          break;
-        case "dispatch":
-          query.fulfillingStatus = "Fulfilled";
-          query.dispatchStatus = { $ne: "Delivered" };
-          break;
-        default:
-          break;
-      }
-    }
+    // ✅ USE SHARED QUERY BUILDER - Guarantees identical logic with export
+    const query = await buildOrderQuery({
+      userId,
+      userRole,
+      search,
+      approval,
+      orderType,
+      dispatch,
+      salesPerson,
+      dispatchFrom,
+      startDate,
+      endDate,
+      dashboardFilter,
+    });
 
     const total = await Order.countDocuments(query);
 
