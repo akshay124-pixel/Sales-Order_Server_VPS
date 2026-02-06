@@ -69,24 +69,63 @@ const initSocket = (server, app) => {
       });
       const fullDoc = change.fullDocument;
       const documentId = change.documentKey?._id;
-      // Only emit to scoped rooms based on ownership
+
+      // Always notify admins for any change
+      io.to("admins").emit("orderUpdate", {
+        operationType: change.operationType,
+        documentId,
+        fullDocument: fullDoc,
+      });
+
+      if (change.operationType === "delete") {
+        io.to("admins").emit("deleteOrder", { _id: documentId });
+      }
+
+      // Scoped notifications for users and leaders
       if (fullDoc?.createdBy) {
         const targetRooms = new Set();
-        targetRooms.add(`user:${String(fullDoc.createdBy)}`);
+        const createdBy = String(fullDoc.createdBy);
+        targetRooms.add(`user:${createdBy}`);
+
         if (fullDoc.assignedTo) {
           targetRooms.add(`user:${String(fullDoc.assignedTo)}`);
         }
-        // Broadcast minimal payload
+
+        // Notify specific users
         const payload = {
           operationType: change.operationType,
           documentId,
-          createdBy: String(fullDoc.createdBy),
+          createdBy,
           assignedTo: fullDoc.assignedTo ? String(fullDoc.assignedTo) : null,
           fullDocument: fullDoc,
         };
+
         for (const room of targetRooms) {
           io.to(room).emit("orderUpdate", payload);
+          if (change.operationType === "delete") {
+            io.to(room).emit("deleteOrder", { _id: documentId });
+          }
         }
+
+        // Notify leaders of creator and assignee
+        (async () => {
+          try {
+            const userIds = [fullDoc.createdBy];
+            if (fullDoc.assignedTo) userIds.push(fullDoc.assignedTo);
+
+            const users = await User.find({ _id: { $in: userIds } }).select("assignedToLeader");
+            users.forEach(u => {
+              if (u.assignedToLeader) {
+                io.to(`leader:${String(u.assignedToLeader)}`).emit("orderUpdate", payload);
+                if (change.operationType === "delete") {
+                  io.to(`leader:${String(u.assignedToLeader)}`).emit("deleteOrder", { _id: documentId });
+                }
+              }
+            });
+          } catch (err) {
+            logger.warn("Failed to notify leaders in change stream", { error: err.message });
+          }
+        })();
       }
     });
 
@@ -123,10 +162,8 @@ const getDashboardCounts = async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // Base visibility query
-    let baseQuery = {
-      dispatchStatus: { $ne: "Order Cancelled" }, // Exclude Cancelled by default
-    };
+    // Base visibility query (removed default exclusion of cancelled orders)
+    let baseQuery = {};
     if (userRole === "Admin" || userRole === "SuperAdmin") {
       baseQuery = { ...baseQuery };
     } else {
@@ -136,7 +173,6 @@ const getDashboardCounts = async (req, res) => {
       const teamMemberIds = teamMembers.map((m) => m._id);
       const allUserIds = [userId, ...teamMemberIds];
       baseQuery = {
-        dispatchStatus: { $ne: "Order Cancelled" },
         $or: [
           { createdBy: { $in: allUserIds } },
           { assignedTo: { $in: allUserIds } },
@@ -177,7 +213,7 @@ const getDashboardCounts = async (req, res) => {
       fulfillingStatus: { $ne: "Fulfilled" },
     });
 
-    return res.status(200).json({ all, installation, production, dispatch });
+    return res.status(200).json({ totalOrders: all, installation, production, dispatch });
   } catch (error) {
     logger.error("Error in getDashboardCounts", { error });
     return res
@@ -225,6 +261,152 @@ const getAllOrders = async (req, res) => {
     res.json(orders);
   } catch (error) {
     logger.error("Error in getAllOrders", { error: error.message });
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+// Optimized Sales Analytics API
+const getSalesAnalytics = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const { startDate, endDate, salesPerson } = req.query;
+
+    let matchQuery = {
+      dispatchStatus: { $ne: "Order Cancelled" },
+    };
+
+    // Role-based visibility logic
+    if (userRole !== "Admin" && userRole !== "SuperAdmin") {
+      const teamMembers = await User.find({ assignedToLeader: userId }).select("_id");
+      const allUserIds = [new mongoose.Types.ObjectId(userId), ...teamMembers.map((m) => m._id)];
+      matchQuery.$or = [{ createdBy: { $in: allUserIds } }, { assignedTo: { $in: allUserIds } }];
+    }
+
+    // Date filtering
+    if (startDate || endDate) {
+      matchQuery.soDate = {};
+      if (startDate) matchQuery.soDate.$gte = new Date(new Date(startDate).setHours(0, 0, 0, 0));
+      if (endDate) matchQuery.soDate.$lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+    }
+
+    // Salesperson filtering
+    if (salesPerson && salesPerson !== "All") {
+      // We'll filter by username later after $lookup or handle it here if we have search capability
+      // For now, we'll keep it simple and filter after grouping if name is provided
+    }
+
+    const aggregationPipeline = [
+      { $match: matchQuery },
+      {
+        $lookup: {
+          from: "users",
+          localField: "createdBy",
+          foreignField: "_id",
+          as: "creator",
+        },
+      },
+      { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "creator.assignedToLeader",
+          foreignField: "_id",
+          as: "leader",
+        },
+      },
+      { $unwind: { path: "$leader", preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: "$createdBy",
+          personName: { $first: "$creator.username" },
+          leaderName: { $first: "$leader.username" },
+          leaderId: { $first: "$creator.assignedToLeader" },
+          totalOrders: { $sum: 1 },
+          totalAmount: { $sum: "$total" },
+          totalPaymentCollected: {
+            $sum: {
+              $convert: {
+                input: "$paymentCollected",
+                to: "double",
+                onError: 0,
+                onNull: 0
+              }
+            }
+          },
+          totalPaymentDue: {
+            $sum: {
+              $convert: {
+                input: "$paymentDue",
+                to: "double",
+                onError: 0,
+                onNull: 0
+              }
+            }
+          },
+          totalUnitPrice: {
+            $sum: {
+              $reduce: {
+                input: "$products",
+                initialValue: 0,
+                in: { $add: ["$$value", { $multiply: ["$$this.unitPrice", "$$this.qty"] }] },
+              },
+            },
+          },
+          dueOver30Days: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $gt: [
+                        {
+                          $convert: {
+                            input: "$paymentDue",
+                            to: "double",
+                            onError: 0,
+                            onNull: 0
+                          }
+                        },
+                        0
+                      ]
+                    },
+                    {
+                      $gt: [
+                        { $divide: [{ $subtract: [new Date(), "$soDate"] }, 1000 * 60 * 60 * 24] },
+                        30,
+                      ],
+                    },
+                  ],
+                },
+                {
+                  $convert: {
+                    input: "$paymentDue",
+                    to: "double",
+                    onError: 0,
+                    onNull: 0
+                  }
+                },
+                0,
+              ],
+            },
+          },
+        },
+      },
+      { $sort: { totalAmount: -1 } },
+    ];
+
+    const results = await Order.aggregate(aggregationPipeline);
+
+    // Final filtering by salesPerson if requested
+    let finalData = results;
+    if (salesPerson && salesPerson !== "All") {
+      finalData = results.filter(r => r.personName?.trim() === salesPerson.trim());
+    }
+
+    res.json(finalData);
+  } catch (error) {
+    logger.error("Error in getSalesAnalytics", { error: error.message });
     res.status(500).json({ error: "Server error" });
   }
 };
@@ -2506,5 +2688,6 @@ module.exports = {
   markNotificationsRead,
   clearNotifications,
   getDashboardCounts,
+  getSalesAnalytics,
   sendInstallationCompletionMail,
 };

@@ -114,4 +114,5 @@ router.get(
 );
 router.get("/fetch-my-team", verifyToken, Controller.fetchMyTeam);
 router.post("/send-completion-mail", verifyToken, Controller.sendInstallationCompletionMail);
+router.get("/get-analytics", verifyToken, Controller.getSalesAnalytics);
 module.exports = router;
