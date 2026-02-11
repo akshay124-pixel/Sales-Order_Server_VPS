@@ -24,12 +24,12 @@ const corsOptions = {
   ],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   credentials: true,
-  allowedHeaders: ["Content-Type", "Authorization","Accept"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept"],
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Log requests
 app.use(requestLogger);
@@ -47,7 +47,13 @@ Controller.initSocket(server, app);
 // Error handling
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    return res.status(400).json({ success: false, error: `Multer error: ${err.message}` });
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        success: false,
+        error: 'File size exceeds the maximum limit of 10MB. Please upload a smaller file.'
+      });
+    }
+    return res.status(400).json({ success: false, error: `File upload error: ${err.message}` });
   } else if (err) {
     return res.status(400).json({ success: false, error: err.message });
   }
