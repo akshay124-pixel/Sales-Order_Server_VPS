@@ -489,7 +489,6 @@ const createOrder = async (req, res) => {
         error: "Payment Terms is required for non-Demo orders",
       });
     }
-
     // Validate dispatchFrom
     const validDispatchLocations = [
       "Patna",
@@ -676,11 +675,24 @@ const createOrder = async (req, res) => {
   } catch (error) {
     logger.error("Error in createOrder", { error });
     if (error.name === "ValidationError") {
-      const messages = Object.values(error.errors).map((err) => err.message);
+      // Create user-friendly error messages
+      const fieldErrors = Object.entries(error.errors).map(([field, err]) => {
+        // Convert field names to readable format
+        const fieldName = field
+          .replace(/([A-Z])/g, ' $1')
+          .replace(/^./, str => str.toUpperCase())
+          .trim();
+        return `${fieldName} is required`;
+      });
+
+      const errorMessage = fieldErrors.length === 1
+        ? fieldErrors[0]
+        : `Please fill in the following required fields: ${fieldErrors.join(', ')}`;
+
       return res.status(400).json({
         success: false,
-        error: "Validation failed",
-        details: messages,
+        error: errorMessage,
+        details: fieldErrors,
       });
     }
     res
