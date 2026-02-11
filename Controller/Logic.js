@@ -490,12 +490,6 @@ const createOrder = async (req, res) => {
       });
     }
 
-    // Set fulfillingStatus based on orderType and dispatchFrom
-    const calculatedFulfillingStatus =
-      orderType === "Demo" || dispatchFrom !== "Morinda"
-        ? "Fulfilled"
-        : "Not Fulfilled";
-
     // Validate dispatchFrom
     const validDispatchLocations = [
       "Patna",
@@ -905,6 +899,25 @@ const editEntry = async (req, res) => {
       existingOrder.sostatus !== "Approved"
     ) {
       updateFields.approvalTimestamp = new Date();
+
+      // -------------------------------------------------------------------------
+      // ✅ APPROVAL-BASED FULFILLMENT RULE
+      // -------------------------------------------------------------------------
+      // Business Rule: When order is approved, auto-fulfill if:
+      // - orderType === "Demo" OR
+      // - dispatchFrom !== "Morinda"
+
+      const finalOrderType = updateFields.orderType || existingOrder.orderType;
+      const finalDispatchFrom = updateFields.dispatchFrom || existingOrder.dispatchFrom;
+
+      if (
+        finalOrderType === "Demo" ||
+        (finalDispatchFrom && finalDispatchFrom !== "Morinda")
+      ) {
+        updateFields.fulfillingStatus = "Fulfilled";
+        updateFields.fulfillmentDate = new Date();
+        updateFields.completionStatus = "Complete";
+      }
     }
 
     // =========================================================================
