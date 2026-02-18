@@ -164,7 +164,7 @@ const getDashboardCounts = async (req, res) => {
 
     // Base visibility query (removed default exclusion of cancelled orders)
     let baseQuery = {};
-    if (userRole === "Admin" || userRole === "SuperAdmin") {
+    if (userRole === "Admin" || userRole === "SuperAdmin" || userRole === "Watch") {
       baseQuery = { ...baseQuery };
     } else {
       const teamMembers = await User.find({ assignedToLeader: userId }).select(
@@ -230,7 +230,7 @@ const getAllOrders = async (req, res) => {
 
     let query = {};
 
-    if (userRole === "Admin" || userRole === "SuperAdmin") {
+    if (userRole === "Admin" || userRole === "SuperAdmin" || userRole === "Watch") {
       // Admin can see all orders
       query = {};
     } else {
@@ -1920,7 +1920,7 @@ const buildOrderQuery = async (params) => {
   let query = {};
 
   // 1. Role-based Access Control
-  if (userRole === "Admin" || userRole === "SuperAdmin") {
+  if (userRole === "Admin" || userRole === "SuperAdmin" || userRole === "Watch") {
     query = {};
   } else {
     const teamMembers = await User.find({ assignedToLeader: userId }).select("_id");

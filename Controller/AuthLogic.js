@@ -7,6 +7,7 @@ const logger = require("../utils/logger");
 // Valid roles from User schema
 const VALID_ROLES = [
   "Production",
+  "Watch",
   "Sales",
   "Installation",
   "Finish",
