@@ -851,8 +851,8 @@ const editEntry = async (req, res) => {
 
       if (has(field)) {
         const val = updateData[field];
-        // Skip undefined or null, BUT allow empty strings if that's the intention (unless it's a Date)
-        if (val === undefined || val === null) continue;
+        // Skip undefined, BUT allow null (to clear fields)
+        if (val === undefined) continue;
 
         if (field === "products") {
           if (!Array.isArray(val)) {
@@ -894,9 +894,10 @@ const editEntry = async (req, res) => {
           field === "receiptDate" ||
           field === "soDate"
         ) {
-          // For dates: Only update if it's a valid date string.
-          // Ignore empty strings to prevent resetting valid dates to null unless explicit null sent (which we skipped above)
-          if (val && !isNaN(new Date(val))) {
+          // For dates: Only update if it's a valid date string OR explicitly null.
+          if (val === null) {
+            updateFields[field] = null;
+          } else if (val && !isNaN(new Date(val))) {
             updateFields[field] = new Date(val);
           }
         } else {
