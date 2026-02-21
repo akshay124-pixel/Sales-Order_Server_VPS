@@ -997,8 +997,7 @@ const editEntry = async (req, res) => {
       if (updateFields.dispatchFrom === "Morinda") {
         updateFields.fulfillingStatus = "Pending";
         updateFields.completionStatus = "In Progress";
-        // We intentionally do NOT clear fulfillmentDate logic here to leave traces, or we can:
-        // updateFields.fulfillmentDate = null; // Mongoose might complain if schema is strict Date, usually safe to ignore or set undefined
+        updateFields.fulfillmentDate = null; // Reset if switching to Morinda
       } else {
         // RULE: Any other location implies "Fulfilled" (as per user request)
         updateFields.fulfillingStatus = "Fulfilled";
@@ -1013,6 +1012,10 @@ const editEntry = async (req, res) => {
         if (!existingOrder.fulfillmentDate) {
           updateFields.fulfillmentDate = new Date();
         }
+      } else {
+        // Handle downgrade
+        updateFields.completionStatus = "In Progress";
+        updateFields.fulfillmentDate = null;
       }
     }
 
