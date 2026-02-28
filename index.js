@@ -21,6 +21,8 @@ const corsOptions = {
     "https://sales-order-app-eight.vercel.app",// frontend vercel
     "https://sales-order-app-git-staging-akshay124-pixels-projects.vercel.app",
     "https://srv988392.hstgr.cloud", // backend domain
+    "capacitor://localhost",
+    "http://localhost"
   ],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   credentials: true,
